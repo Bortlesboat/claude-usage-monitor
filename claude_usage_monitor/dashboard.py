@@ -1,4 +1,4 @@
-"""Tkinter dashboard window showing detailed usage charts and stats.
+"""Tkinter dashboard window showing usage vs plan limits.
 
 Can be run standalone: python -m claude_usage_monitor.dashboard
 """
@@ -17,17 +17,32 @@ from .config import (
     COLOR_BAR_FILL,
     COLOR_BAR_HIGH,
     COLOR_BG,
+    COLOR_GREEN,
+    COLOR_RED,
     COLOR_SECONDARY,
     COLOR_TEXT,
+    COLOR_YELLOW,
+    UserConfig,
+    load_config,
 )
 from .stats import UsageSnapshot, _format_tokens, load_stats
 
 
-class DashboardWindow:
-    """Popup dashboard with usage charts."""
+def _pct_color(pct: float) -> str:
+    """Green < 60%, yellow 60-85%, red > 85%."""
+    if pct < 60:
+        return COLOR_GREEN
+    if pct < 85:
+        return COLOR_YELLOW
+    return COLOR_RED
 
-    def __init__(self, snap: UsageSnapshot | None = None):
+
+class DashboardWindow:
+    """Popup dashboard focused on usage vs plan allowance."""
+
+    def __init__(self, snap: UsageSnapshot | None = None, config: UserConfig | None = None):
         self.snap = snap or load_stats()
+        self.config = config or load_config()
         self.root: tk.Tk | None = None
 
     def show(self):
@@ -35,7 +50,7 @@ class DashboardWindow:
         self.root = tk.Tk()
         self.root.title("Claude Code Usage Monitor")
         self.root.configure(bg=COLOR_BG)
-        self.root.geometry("520x680")
+        self.root.geometry("540x720")
         self.root.resizable(True, True)
 
         try:
@@ -49,86 +64,177 @@ class DashboardWindow:
     def _build_ui(self):
         root = self.root
         snap = self.snap
+        cfg = self.config
 
-        # Main scrollable frame
+        # Scrollable frame
         canvas = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0)
         scrollbar = ttk.Scrollbar(root, orient="vertical", command=canvas.yview)
         frame = tk.Frame(canvas, bg=COLOR_BG)
-
         frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
 
         padx = 16
 
         if snap.error:
-            tk.Label(frame, text=f"Error: {snap.error}", fg="#e07a5f", bg=COLOR_BG,
+            tk.Label(frame, text=f"Error: {snap.error}", fg=COLOR_RED, bg=COLOR_BG,
                      font=("Segoe UI", 12)).pack(padx=padx, pady=20)
             return
 
-        # Title
+        # ── Title + Plan ──
         tk.Label(frame, text="Claude Code Usage", fg=COLOR_ACCENT, bg=COLOR_BG,
-                 font=("Segoe UI", 18, "bold")).pack(padx=padx, pady=(16, 4))
+                 font=("Segoe UI", 18, "bold")).pack(padx=padx, pady=(16, 2))
+        tk.Label(frame, text=f"Plan: {cfg.plan_label}", fg=COLOR_SECONDARY, bg=COLOR_BG,
+                 font=("Segoe UI", 10)).pack(padx=padx, pady=(0, 8))
 
-        # Summary cards
-        summary_frame = tk.Frame(frame, bg=COLOR_BG)
-        summary_frame.pack(fill="x", padx=padx, pady=(8, 4))
+        # ── Big Usage Gauge ──
+        pct = snap.usage_pct(cfg)
+        used = snap.period_tokens(cfg)
+        limit = cfg.output_token_limit
+        color = _pct_color(pct)
+
+        gauge_frame = tk.Frame(frame, bg="#2d2d44", padx=20, pady=16)
+        gauge_frame.pack(fill="x", padx=padx, pady=(4, 8))
+
+        tk.Label(gauge_frame, text=f"{pct:.1f}%", fg=color, bg="#2d2d44",
+                 font=("Segoe UI", 36, "bold")).pack()
+        tk.Label(gauge_frame, text="of plan used this period", fg=COLOR_SECONDARY, bg="#2d2d44",
+                 font=("Segoe UI", 10)).pack()
+        tk.Label(gauge_frame, text=f"{_format_tokens(used)} / {_format_tokens(limit)} tokens",
+                 fg=COLOR_TEXT, bg="#2d2d44", font=("Segoe UI", 12)).pack(pady=(4, 0))
+
+        # Usage bar
+        bar_outer = tk.Frame(gauge_frame, bg=COLOR_BAR_BG, height=20)
+        bar_outer.pack(fill="x", pady=(8, 0))
+        bar_outer.pack_propagate(False)
+        fill_w = min(pct / 100, 1.0)
+        bar_inner = tk.Frame(bar_outer, bg=color)
+        bar_inner.place(x=0, y=0, relheight=1.0, relwidth=fill_w)
+
+        # ── Reset & Budget Info ──
+        info_frame = tk.Frame(frame, bg=COLOR_BG)
+        info_frame.pack(fill="x", padx=padx, pady=(8, 4))
+
+        left = tk.Frame(info_frame, bg="#2d2d44", padx=12, pady=8)
+        left.grid(row=0, column=0, padx=(0, 4), sticky="nsew")
+        right = tk.Frame(info_frame, bg="#2d2d44", padx=12, pady=8)
+        right.grid(row=0, column=1, padx=(4, 0), sticky="nsew")
+        info_frame.columnconfigure(0, weight=1)
+        info_frame.columnconfigure(1, weight=1)
+
+        # Reset info
+        tk.Label(left, text="Resets in", fg=COLOR_SECONDARY, bg="#2d2d44",
+                 font=("Segoe UI", 9)).pack()
+        days_left = cfg.days_until_reset
+        reset_text = f"{days_left} day{'s' if days_left != 1 else ''}"
+        tk.Label(left, text=reset_text, fg=COLOR_TEXT, bg="#2d2d44",
+                 font=("Segoe UI", 16, "bold")).pack()
+        tk.Label(left, text=cfg.next_reset.strftime("%b %d, %Y"), fg=COLOR_SECONDARY, bg="#2d2d44",
+                 font=("Segoe UI", 9)).pack()
+
+        # Daily budget
+        budget = snap.daily_budget(cfg)
+        tk.Label(right, text="Daily budget", fg=COLOR_SECONDARY, bg="#2d2d44",
+                 font=("Segoe UI", 9)).pack()
+        tk.Label(right, text=_format_tokens(budget), fg=COLOR_TEXT, bg="#2d2d44",
+                 font=("Segoe UI", 16, "bold")).pack()
+        tk.Label(right, text="tokens/day remaining", fg=COLOR_SECONDARY, bg="#2d2d44",
+                 font=("Segoe UI", 9)).pack()
+
+        # ── Projected Usage ──
+        proj = snap.projected_usage_pct(cfg)
+        proj_color = _pct_color(proj)
+        proj_frame = tk.Frame(frame, bg="#2d2d44", padx=16, pady=10)
+        proj_frame.pack(fill="x", padx=padx, pady=(8, 4))
+
+        proj_row = tk.Frame(proj_frame, bg="#2d2d44")
+        proj_row.pack(fill="x")
+        tk.Label(proj_row, text="Projected end-of-period usage:", fg=COLOR_SECONDARY, bg="#2d2d44",
+                 font=("Segoe UI", 10), anchor="w").pack(side="left")
+        tk.Label(proj_row, text=f"{proj:.0f}%", fg=proj_color, bg="#2d2d44",
+                 font=("Segoe UI", 14, "bold"), anchor="e").pack(side="right")
+
+        if proj > 100:
+            tk.Label(proj_frame, text="At this pace you'll exceed your plan limit",
+                     fg=COLOR_RED, bg="#2d2d44", font=("Segoe UI", 9)).pack(anchor="w")
+        elif proj > 85:
+            tk.Label(proj_frame, text="On track to use most of your allowance",
+                     fg=COLOR_YELLOW, bg="#2d2d44", font=("Segoe UI", 9)).pack(anchor="w")
+        else:
+            tk.Label(proj_frame, text="Usage is well within your plan limits",
+                     fg=COLOR_GREEN, bg="#2d2d44", font=("Segoe UI", 9)).pack(anchor="w")
+
+        # ── Period Summary Cards ──
+        self._section_label(frame, "This Period")
+        period_frame = tk.Frame(frame, bg=COLOR_BG)
+        period_frame.pack(fill="x", padx=padx, pady=(4, 4))
+
+        period_msgs = snap.period_messages(cfg)
+        period_sessions = snap.period_sessions(cfg)
+        remaining = max(limit - used, 0)
 
         cards = [
-            ("Today", f"{snap.today_messages} msgs\n{_format_tokens(snap.today_tokens)} tokens"),
-            ("This Week", f"{snap.week_messages} msgs\n{_format_tokens(snap.week_tokens)} tokens"),
-            ("All Time", f"{snap.total_sessions} sessions\n{snap.total_messages:,} msgs"),
+            ("Messages", f"{period_msgs:,}"),
+            ("Sessions", str(period_sessions)),
+            ("Tokens left", _format_tokens(remaining)),
         ]
-
         for i, (title, value) in enumerate(cards):
-            card = tk.Frame(summary_frame, bg="#2d2d44", padx=12, pady=8)
+            card = tk.Frame(period_frame, bg="#2d2d44", padx=12, pady=8)
             card.grid(row=0, column=i, padx=4, sticky="nsew")
-            summary_frame.columnconfigure(i, weight=1)
+            period_frame.columnconfigure(i, weight=1)
             tk.Label(card, text=title, fg=COLOR_SECONDARY, bg="#2d2d44",
                      font=("Segoe UI", 9)).pack()
             tk.Label(card, text=value, fg=COLOR_TEXT, bg="#2d2d44",
-                     font=("Segoe UI", 11, "bold")).pack()
+                     font=("Segoe UI", 13, "bold")).pack()
 
-        # Model breakdown
-        self._section_label(frame, "Token Usage by Model")
-        if snap.models:
-            max_tokens = max(m.total_tokens for m in snap.models.values())
-            for model in sorted(snap.models.values(), key=lambda m: m.total_tokens, reverse=True):
-                self._bar_row(frame, model.display_name, model.total_tokens, max_tokens,
-                              f"{_format_tokens(model.total_tokens)}")
+        # ── Token Usage by Model (this period) ──
+        self._section_label(frame, "Tokens by Model (This Period)")
+        cutoff = cfg.current_period_start.strftime("%Y-%m-%d")
+        model_period: dict[str, int] = {}
+        for day in snap.daily_tokens:
+            if day.date >= cutoff:
+                for model, tokens in day.tokens_by_model.items():
+                    model_period[model] = model_period.get(model, 0) + tokens
 
-        # Daily activity chart (last 14 days)
-        self._section_label(frame, "Daily Messages (Last 14 Days)")
-        self._daily_chart(frame, snap)
+        if model_period:
+            max_t = max(model_period.values())
+            from .stats import ModelStats
+            for model_id in sorted(model_period, key=model_period.get, reverse=True):
+                ms = ModelStats(name=model_id)
+                tokens = model_period[model_id]
+                pct_of_limit = (tokens / limit * 100) if limit else 0
+                self._bar_row(frame, ms.display_name, tokens, max_t,
+                              f"{_format_tokens(tokens)} ({pct_of_limit:.1f}%)")
+        else:
+            tk.Label(frame, text="No usage this period", fg=COLOR_SECONDARY, bg=COLOR_BG,
+                     font=("Segoe UI", 10)).pack(padx=20, pady=4)
 
-        # Hour distribution
-        self._section_label(frame, "Activity by Hour")
-        self._hour_chart(frame, snap)
+        # ── Daily Usage Chart ──
+        self._section_label(frame, "Daily Tokens (This Period)")
+        self._daily_chart(frame, snap, cfg)
 
-        # Stats footer
-        self._section_label(frame, "Stats")
-        stats_text = []
-        stats_text.append(f"Days active: {snap.days_active}")
-        stats_text.append(f"Avg daily messages: {snap.avg_daily_messages:.0f}")
-        stats_text.append(f"Total tokens: {_format_tokens(snap.total_tokens)}")
+        # ── All Time Stats ──
+        self._section_label(frame, "All Time")
+        stats = [
+            f"Sessions: {snap.total_sessions}  |  Messages: {snap.total_messages:,}  |  Days: {snap.days_active}",
+            f"Total tokens: {_format_tokens(snap.total_tokens)}",
+        ]
         if snap.peak_hour is not None:
-            stats_text.append(f"Peak hour: {snap.peak_hour}:00")
+            stats.append(f"Peak hour: {snap.peak_hour:02d}:00")
         if snap.longest_session_messages:
             dur_m = snap.longest_session_duration_sec // 60
-            stats_text.append(f"Longest session: {snap.longest_session_messages} msgs ({dur_m // 60}h {dur_m % 60}m)")
-        if snap.first_session_date:
-            stats_text.append(f"First session: {snap.first_session_date[:10]}")
+            stats.append(f"Longest session: {snap.longest_session_messages} msgs ({dur_m // 60}h {dur_m % 60}m)")
 
-        for line in stats_text:
+        for line in stats:
             tk.Label(frame, text=line, fg=COLOR_SECONDARY, bg=COLOR_BG,
                      font=("Segoe UI", 10), anchor="w").pack(fill="x", padx=20, pady=1)
+
+        # ── Config note ──
+        tk.Label(frame, text=f"Config: ~/.claude/usage-monitor-config.json  |  Billing day: {cfg.billing_day}",
+                 fg="#555577", bg=COLOR_BG, font=("Segoe UI", 8)).pack(padx=padx, pady=(16, 8))
 
         # Bottom padding
         tk.Frame(frame, bg=COLOR_BG, height=20).pack()
@@ -150,41 +256,51 @@ class DashboardWindow:
 
         ratio = value / max_val if max_val else 0
         color = COLOR_BAR_HIGH if ratio > 0.8 else COLOR_BAR_FILL
-        fill = tk.Frame(bar_frame, bg=color, width=int(ratio * 300))
-        fill.place(x=0, y=0, relheight=1.0, width=max(int(ratio * 300), 2))
+        bar_inner = tk.Frame(bar_frame, bg=color)
+        bar_inner.place(x=0, y=0, relheight=1.0, width=max(int(ratio * 300), 2))
 
         tk.Label(row, text=display, fg=COLOR_SECONDARY, bg=COLOR_BG,
-                 font=("Segoe UI", 9), width=10, anchor="e").pack(side="right")
+                 font=("Segoe UI", 9), width=16, anchor="e").pack(side="right")
 
-    def _daily_chart(self, parent, snap: UsageSnapshot):
-        """Draw a bar chart of daily messages for last 14 days."""
-        canvas = tk.Canvas(parent, bg=COLOR_BG, height=120, highlightthickness=0)
+    def _daily_chart(self, parent, snap: UsageSnapshot, cfg: UserConfig):
+        """Bar chart of daily token usage for the current billing period."""
+        canvas = tk.Canvas(parent, bg=COLOR_BG, height=130, highlightthickness=0)
         canvas.pack(fill="x", padx=20, pady=4)
 
-        cutoff = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
-        days = [d for d in snap.daily_activity if d.date >= cutoff]
+        cutoff = cfg.current_period_start.strftime("%Y-%m-%d")
+        days = [d for d in snap.daily_tokens if d.date >= cutoff]
 
         if not days:
-            canvas.create_text(200, 60, text="No recent data", fill=COLOR_SECONDARY,
+            canvas.create_text(200, 65, text="No usage data this period", fill=COLOR_SECONDARY,
                                font=("Segoe UI", 10))
             return
 
+        # Draw budget line
+        budget = snap.daily_budget(cfg)
+
         canvas.update_idletasks()
-        w = canvas.winfo_width() or 480
-        h = 120
+        w = canvas.winfo_width() or 490
+        h = 130
         margin_bottom = 25
-        margin_top = 10
+        margin_top = 15
         chart_h = h - margin_bottom - margin_top
 
-        max_msgs = max(d.messages for d in days) or 1
+        max_tokens = max(max(d.total_tokens for d in days), budget) or 1
         bar_w = max((w - 40) // max(len(days), 1) - 4, 8)
+
+        # Budget line
+        budget_y = h - margin_bottom - int((budget / max_tokens) * chart_h)
+        canvas.create_line(10, budget_y, w - 10, budget_y, fill=COLOR_GREEN, dash=(4, 4))
+        canvas.create_text(w - 10, budget_y - 8, text="budget", fill=COLOR_GREEN,
+                           font=("Segoe UI", 7), anchor="e")
 
         for i, day in enumerate(days):
             x = 20 + i * (bar_w + 4)
-            bar_h = int((day.messages / max_msgs) * chart_h)
+            tokens = day.total_tokens
+            bar_h = int((tokens / max_tokens) * chart_h)
             y = h - margin_bottom - bar_h
 
-            color = COLOR_BAR_HIGH if day.messages == max_msgs else COLOR_BAR_FILL
+            color = COLOR_RED if tokens > budget * 1.5 else (COLOR_YELLOW if tokens > budget else COLOR_BAR_FILL)
             canvas.create_rectangle(x, y, x + bar_w, h - margin_bottom, fill=color, outline="")
 
             label = day.date[-2:]
@@ -192,35 +308,17 @@ class DashboardWindow:
                                font=("Segoe UI", 7))
 
             if bar_h > 15:
-                canvas.create_text(x + bar_w // 2, y - 8, text=str(day.messages),
+                canvas.create_text(x + bar_w // 2, y - 8, text=_format_tokens(tokens),
                                    fill=COLOR_TEXT, font=("Segoe UI", 7))
-
-    def _hour_chart(self, parent, snap: UsageSnapshot):
-        """Draw hour distribution as a horizontal bar chart."""
-        if not snap.hour_counts:
-            return
-
-        max_count = max(snap.hour_counts.values()) if snap.hour_counts else 1
-
-        chart_frame = tk.Frame(parent, bg=COLOR_BG)
-        chart_frame.pack(fill="x", padx=20, pady=4)
-
-        for hour in range(24):
-            count = snap.hour_counts.get(hour, 0)
-            if count == 0:
-                continue
-            label = f"{hour:02d}:00"
-            self._bar_row(chart_frame, label, count, max_count, str(count))
 
 
 def open_dashboard():
-    """Open dashboard as a separate process (avoids tkinter threading issues)."""
+    """Open dashboard as a separate process."""
     subprocess.Popen(
         [sys.executable, "-m", "claude_usage_monitor.dashboard"],
         creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
     )
 
 
-# Allow running standalone: python -m claude_usage_monitor.dashboard
 if __name__ == "__main__":
     DashboardWindow().show()

@@ -12,6 +12,7 @@ import pystray
 from pystray import MenuItem, Menu
 
 from . import __version__
+from .config import load_config
 from .dashboard import open_dashboard
 from .stats import UsageSnapshot, _format_tokens, load_stats
 from .tray import build_menu_items, create_icon_image
@@ -22,13 +23,14 @@ class ClaudeUsageApp:
     """System tray application for monitoring Claude Code usage."""
 
     def __init__(self):
+        self.config = load_config()
         self.snap: UsageSnapshot = load_stats()
         self.icon: pystray.Icon | None = None
         self._running = True
 
     def _make_menu(self) -> Menu:
         """Build the pystray menu from current snapshot."""
-        items = build_menu_items(self.snap)
+        items = build_menu_items(self.snap, self.config)
         menu_items = []
 
         for label, action in items:
@@ -48,22 +50,25 @@ class ClaudeUsageApp:
         return Menu(*menu_items)
 
     def _get_icon_text(self) -> str:
-        """Get short text for the icon based on today's usage."""
-        msgs = self.snap.today_messages
-        if msgs >= 1000:
-            return f"{msgs // 1000}K"
-        if msgs > 0:
-            return str(msgs)
+        """Get usage % for the icon."""
+        pct = self.snap.usage_pct(self.config)
+        if pct >= 100:
+            return "!!"
+        if pct >= 10:
+            return f"{pct:.0f}"
+        if pct > 0:
+            return f"{pct:.0f}%"
         return "CC"
 
     def _refresh(self, icon=None, item=None):
         """Reload stats from disk."""
+        self.config = load_config()
         self.snap = load_stats()
         if self.icon:
+            pct = self.snap.usage_pct(self.config)
             self.icon.icon = create_icon_image(self._get_icon_text())
             self.icon.menu = self._make_menu()
-            title = f"Claude Code - {self.snap.today_messages} msgs today"
-            self.icon.title = title
+            self.icon.title = f"Claude Code - {pct:.1f}% of plan used"
 
     def _open_dashboard(self, icon=None, item=None):
         """Open the dashboard window as a separate process."""
@@ -128,7 +133,7 @@ class ClaudeUsageApp:
         self.icon = pystray.Icon(
             name="claude-usage",
             icon=create_icon_image(self._get_icon_text()),
-            title=f"Claude Code v{__version__} - {self.snap.today_messages} msgs today",
+            title=f"Claude Code v{__version__} - {self.snap.usage_pct(self.config):.1f}% of plan used",
             menu=self._make_menu(),
         )
 

@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import threading
-import webbrowser
-
 from PIL import Image, ImageDraw, ImageFont
 
-from .stats import UsageSnapshot, _format_tokens, load_stats
+from .config import UserConfig, load_config
+from .stats import UsageSnapshot, _format_tokens
 
 
 def create_icon_image(text: str = "CC", color: str = "#d4a574") -> Image.Image:
@@ -16,10 +14,8 @@ def create_icon_image(text: str = "CC", color: str = "#d4a574") -> Image.Image:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # Draw rounded background
     draw.rounded_rectangle([2, 2, size - 2, size - 2], radius=12, fill="#1a1a2e")
 
-    # Draw text
     try:
         font = ImageFont.truetype("arial.ttf", 22)
     except OSError:
@@ -28,7 +24,6 @@ def create_icon_image(text: str = "CC", color: str = "#d4a574") -> Image.Image:
         except OSError:
             font = ImageFont.load_default()
 
-    # Parse hex color
     c = color.lstrip("#")
     rgb = tuple(int(c[i:i+2], 16) for i in (0, 2, 4))
 
@@ -41,8 +36,9 @@ def create_icon_image(text: str = "CC", color: str = "#d4a574") -> Image.Image:
     return img
 
 
-def build_menu_items(snap: UsageSnapshot) -> list[tuple]:
+def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None) -> list[tuple]:
     """Build menu items from usage snapshot. Returns list of (label, callback_or_None)."""
+    cfg = config or load_config()
     items = []
 
     if snap.error:
@@ -51,46 +47,39 @@ def build_menu_items(snap: UsageSnapshot) -> list[tuple]:
         items.append(("Quit", "quit"))
         return items
 
-    # Header
-    items.append(("Claude Code Usage Monitor", None))
+    # Plan usage header
+    pct = snap.usage_pct(cfg)
+    used = snap.period_tokens(cfg)
+    limit = cfg.output_token_limit
+    remaining = max(limit - used, 0)
+
+    items.append((f"{cfg.plan_label}  —  {pct:.1f}% used", None))
+    items.append((f"{_format_tokens(used)} / {_format_tokens(limit)} tokens", None))
+    items.append(("---", None))
+
+    # Reset
+    days_left = cfg.days_until_reset
+    items.append((f"Resets in {days_left} day{'s' if days_left != 1 else ''} ({cfg.next_reset.strftime('%b %d')})", None))
+    items.append((f"Tokens remaining: {_format_tokens(remaining)}", None))
+    items.append((f"Daily budget: {_format_tokens(snap.daily_budget(cfg))}/day", None))
     items.append(("---", None))
 
     # Today
-    items.append((f"Today: {snap.today_messages} messages, {snap.today_sessions} sessions", None))
-    items.append((f"Today tokens: {_format_tokens(snap.today_tokens)}", None))
+    items.append((f"Today: {snap.today_messages} msgs, {_format_tokens(snap.today_tokens)} tokens", None))
     items.append(("---", None))
 
-    # This week
-    items.append((f"This week: {snap.week_messages} messages, {_format_tokens(snap.week_tokens)} tokens", None))
+    # Projected
+    proj = snap.projected_usage_pct(cfg)
+    if proj > 100:
+        items.append((f"Projected: {proj:.0f}% (over limit!)", None))
+    else:
+        items.append((f"Projected: {proj:.0f}% at end of period", None))
     items.append(("---", None))
 
-    # All time
-    items.append((f"All time: {snap.total_sessions} sessions, {snap.total_messages:,} messages", None))
-    items.append((f"Total tokens: {_format_tokens(snap.total_tokens)}", None))
-    items.append((f"Days active: {snap.days_active}", None))
-    items.append((f"Avg daily: {snap.avg_daily_messages:.0f} messages", None))
+    # All time (compact)
+    items.append((f"All time: {snap.total_sessions} sessions, {snap.total_messages:,} msgs", None))
     items.append(("---", None))
 
-    # Model breakdown
-    items.append(("Models:", None))
-    for model in sorted(snap.models.values(), key=lambda m: m.total_tokens, reverse=True):
-        items.append((f"  {model.display_name}: {_format_tokens(model.total_tokens)} tokens", None))
-    items.append(("---", None))
-
-    # Peak hour
-    if snap.peak_hour is not None:
-        h = snap.peak_hour
-        label = f"{h}:00" if h >= 10 else f"0{h}:00"
-        items.append((f"Peak hour: {label}", None))
-
-    # Longest session
-    if snap.longest_session_messages:
-        dur_min = snap.longest_session_duration_sec // 60
-        dur_h = dur_min // 60
-        dur_m = dur_min % 60
-        items.append((f"Longest session: {snap.longest_session_messages} msgs ({dur_h}h {dur_m}m)", None))
-
-    items.append(("---", None))
     items.append(("Open Dashboard", "dashboard"))
     items.append(("Check for Updates", "update"))
     items.append(("Refresh", "refresh"))

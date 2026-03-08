@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .config import get_stats_path
+from .config import UserConfig, get_stats_path, load_config
 
 
 @dataclass
@@ -125,6 +125,45 @@ class UsageSnapshot:
     @property
     def days_active(self) -> int:
         return len(self.daily_activity)
+
+    def period_tokens(self, config: UserConfig) -> int:
+        """Total output tokens used in the current billing period."""
+        cutoff = config.current_period_start.strftime("%Y-%m-%d")
+        return sum(d.total_tokens for d in self.daily_tokens if d.date >= cutoff)
+
+    def period_messages(self, config: UserConfig) -> int:
+        """Messages sent in the current billing period."""
+        cutoff = config.current_period_start.strftime("%Y-%m-%d")
+        return sum(d.messages for d in self.daily_activity if d.date >= cutoff)
+
+    def period_sessions(self, config: UserConfig) -> int:
+        """Sessions in the current billing period."""
+        cutoff = config.current_period_start.strftime("%Y-%m-%d")
+        return sum(d.sessions for d in self.daily_activity if d.date >= cutoff)
+
+    def usage_pct(self, config: UserConfig) -> float:
+        """Percentage of plan limit used this period (0-100+)."""
+        limit = config.output_token_limit
+        if limit <= 0:
+            return 0.0
+        return (self.period_tokens(config) / limit) * 100
+
+    def daily_budget(self, config: UserConfig) -> int:
+        """Recommended daily token budget to spread usage evenly."""
+        remaining = max(config.output_token_limit - self.period_tokens(config), 0)
+        days_left = max(config.days_until_reset, 1)
+        return remaining // days_left
+
+    def projected_usage_pct(self, config: UserConfig) -> float:
+        """Projected usage % at end of period based on current pace."""
+        elapsed = max(config.days_elapsed, 1)
+        total_days = max(config.days_in_period, 1)
+        daily_rate = self.period_tokens(config) / elapsed
+        projected = daily_rate * total_days
+        limit = config.output_token_limit
+        if limit <= 0:
+            return 0.0
+        return (projected / limit) * 100
 
 
 def _format_tokens(n: int) -> str:
