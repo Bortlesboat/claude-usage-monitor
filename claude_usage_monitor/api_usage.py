@@ -97,33 +97,65 @@ WINDOW_CONFIG = {
 }
 
 
+import time as _time
+
+# Simple cache to avoid hammering the API
+_cache: dict[str, tuple[float, LiveUsage]] = {}
+_CACHE_TTL = 30  # seconds
+
+
 def fetch_live_usage() -> LiveUsage:
-    """Fetch live usage from Anthropic's OAuth API."""
+    """Fetch live usage from Anthropic's OAuth API (cached for 30s)."""
+    now = _time.monotonic()
+    if "last" in _cache:
+        ts, cached = _cache["last"]
+        if now - ts < _CACHE_TTL:
+            return cached
+
+    result = _fetch_live_usage_uncached()
+    if not result.error:
+        _cache["last"] = (now, result)
+    return result
+
+
+def _fetch_live_usage_uncached() -> LiveUsage:
+    """Actual API fetch (no cache)."""
     token = _get_oauth_token()
     if not token:
         return LiveUsage(windows=[], error="Sign in to Claude Code first (run 'claude' in terminal)")
 
-    try:
-        req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage")
-        req.add_header("Authorization", f"Bearer {token}")
-        req.add_header("Accept", "application/json")
-        req.add_header("anthropic-version", "2023-06-01")
-        req.add_header("anthropic-beta", "oauth-2025-04-20")
+    last_err = None
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage")
+            req.add_header("Authorization", f"Bearer {token}")
+            req.add_header("Accept", "application/json")
+            req.add_header("anthropic-version", "2023-06-01")
+            req.add_header("anthropic-beta", "oauth-2025-04-20")
 
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code == 401:
-            msg = "Session expired — run 'claude' in terminal to re-authenticate"
-        elif e.code == 403:
-            msg = "Token doesn't have required permissions — re-authenticate Claude Code"
-        else:
-            msg = f"Anthropic API error (HTTP {e.code})"
-        return LiveUsage(windows=[], error=msg)
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return LiveUsage(windows=[], error="Can't reach Anthropic — local stats still work")
-    except Exception as e:
-        return LiveUsage(windows=[], error=str(e) or "Unknown error fetching usage")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            break  # Success
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                # Rate limited — back off and retry
+                retry_after = int(e.headers.get("Retry-After", 2 ** (attempt + 1)))
+                if attempt < 2:
+                    _time.sleep(min(retry_after, 10))
+                    last_err = e
+                    continue
+                return LiveUsage(windows=[], error="API rate limited — will retry next refresh")
+            if e.code == 401:
+                msg = "Session expired — run 'claude' in terminal to re-authenticate"
+            elif e.code == 403:
+                msg = "Token doesn't have required permissions — re-authenticate Claude Code"
+            else:
+                msg = f"Anthropic API error (HTTP {e.code})"
+            return LiveUsage(windows=[], error=msg)
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return LiveUsage(windows=[], error="Can't reach Anthropic — local stats still work")
+        except Exception as e:
+            return LiveUsage(windows=[], error=str(e) or "Unknown error fetching usage")
 
     windows = []
     for key, label in WINDOW_CONFIG.items():
