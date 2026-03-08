@@ -1,4 +1,4 @@
-"""Configuration and path resolution."""
+"""Config, paths, and plan definitions."""
 
 from __future__ import annotations
 
@@ -10,24 +10,20 @@ from datetime import datetime, date
 from pathlib import Path
 
 
-def get_claude_dir() -> Path:
-    """Get the Claude Code config directory (~/.claude/)."""
+def get_claude_dir():
     if platform.system() == "Windows":
         return Path(os.environ.get("USERPROFILE", "~")) / ".claude"
     return Path.home() / ".claude"
 
 
-def get_stats_path() -> Path:
-    """Get the path to stats-cache.json."""
+def get_stats_path():
     return get_claude_dir() / "stats-cache.json"
 
 
-def get_config_path() -> Path:
-    """Get path to our config file."""
+def get_config_path():
     return get_claude_dir() / "usage-monitor-config.json"
 
 
-# Refresh interval in milliseconds
 REFRESH_INTERVAL_MS = 30_000
 
 # Colors
@@ -67,10 +63,9 @@ PLAN_LIMITS: dict[str, dict] = {
 
 @dataclass
 class UserConfig:
-    """User's plan configuration."""
     plan: str = "pro"  # free, pro, max_5x, max_20x
-    billing_day: int = 1  # Day of month billing resets (1-28)
-    custom_output_limit: int | None = None  # Override plan default
+    billing_day: int = 1  # day of month billing resets (1-28)
+    custom_output_limit: int | None = None
 
     def __post_init__(self):
         # Clamp billing_day to valid range
@@ -92,7 +87,6 @@ class UserConfig:
 
     @property
     def current_period_start(self) -> date:
-        """Get the start of the current billing period."""
         today = date.today()
         day = min(self.billing_day, 28)
         if today.day >= day:
@@ -104,7 +98,6 @@ class UserConfig:
 
     @property
     def next_reset(self) -> date:
-        """Get the next billing reset date."""
         today = date.today()
         day = min(self.billing_day, 28)
         if today.day < day:
@@ -127,8 +120,8 @@ class UserConfig:
         return (date.today() - self.current_period_start).days
 
 
-def detect_plan_from_credentials() -> str | None:
-    """Try to detect plan from Claude's .credentials.json."""
+def detect_plan_from_credentials():
+    """Try to figure out the plan from Claude's credentials."""
     creds_path = get_claude_dir() / ".credentials.json"
     if not creds_path.exists():
         return None
@@ -151,8 +144,8 @@ def detect_plan_from_credentials() -> str | None:
         return None
 
 
-def load_config() -> UserConfig:
-    """Load user config, auto-detecting plan if no config exists."""
+def load_config():
+    """Load config, auto-detecting plan on first run."""
     config_path = get_config_path()
 
     if config_path.exists():
@@ -177,13 +170,12 @@ def load_config() -> UserConfig:
 
 
 def save_config(config: UserConfig):
-    """Save user config to disk."""
     config_path = get_config_path()
     data = {
         "plan": config.plan,
         "billing_day": config.billing_day,
     }
-    if config.custom_output_limit:
+    if config.custom_output_limit is not None:
         data["custom_output_limit"] = config.custom_output_limit
     try:
         with open(config_path, "w", encoding="utf-8") as f:

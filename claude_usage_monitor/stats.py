@@ -1,4 +1,4 @@
-"""Parse and compute usage stats from Claude Code session files."""
+"""Scan Claude Code session files and compute usage stats."""
 
 from __future__ import annotations
 
@@ -8,14 +8,12 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 from .config import UserConfig, get_claude_dir, get_stats_path, load_config
 
 
 @dataclass
 class ModelStats:
-    """Token usage for a single model."""
     name: str
     input_tokens: int = 0
     output_tokens: int = 0
@@ -28,7 +26,6 @@ class ModelStats:
 
     @property
     def display_name(self) -> str:
-        """Shorten model ID to human-readable name."""
         name = self.name
         replacements = {
             "claude-opus-4-6": "Opus 4.6",
@@ -47,7 +44,6 @@ class ModelStats:
 
 @dataclass
 class DailyActivity:
-    """Activity stats for a single day."""
     date: str
     messages: int = 0
     sessions: int = 0
@@ -66,7 +62,6 @@ class DailyActivity:
 
 @dataclass
 class UsageSnapshot:
-    """Complete usage snapshot."""
     total_sessions: int = 0
     total_messages: int = 0
     first_session_date: str = ""
@@ -146,12 +141,10 @@ class UsageSnapshot:
         return len(self.daily_activity)
 
     def period_output_tokens(self, config: UserConfig) -> int:
-        """Output tokens used in the current billing period (what Anthropic meters)."""
         cutoff = config.current_period_start.strftime("%Y-%m-%d")
         return sum(d.output_tokens for d in self.daily_tokens if d.date >= cutoff)
 
     def period_total_tokens(self, config: UserConfig) -> int:
-        """All tokens (input + output + cache) in the current billing period."""
         cutoff = config.current_period_start.strftime("%Y-%m-%d")
         return sum(d.total_tokens for d in self.daily_tokens if d.date >= cutoff)
 
@@ -164,20 +157,17 @@ class UsageSnapshot:
         return sum(d.sessions for d in self.daily_activity if d.date >= cutoff)
 
     def usage_pct(self, config: UserConfig) -> float:
-        """Percentage of plan output token limit used this period."""
         limit = config.output_token_limit
         if limit <= 0:
             return 0.0
         return (self.period_output_tokens(config) / limit) * 100
 
     def daily_budget(self, config: UserConfig) -> int:
-        """Recommended daily output token budget to spread usage evenly."""
         remaining = max(config.output_token_limit - self.period_output_tokens(config), 0)
         days_left = max(config.days_until_reset, 1)
         return remaining // days_left
 
     def projected_usage_pct(self, config: UserConfig) -> float:
-        """Projected usage % at end of period based on current pace."""
         elapsed = max(config.days_elapsed, 1)
         total_days = max(config.days_in_period, 1)
         daily_rate = self.period_output_tokens(config) / elapsed
@@ -188,7 +178,6 @@ class UsageSnapshot:
         return (projected / limit) * 100
 
     def period_model_output(self, config: UserConfig) -> dict[str, int]:
-        """Output tokens by model for the current period."""
         cutoff = config.current_period_start.strftime("%Y-%m-%d")
         result: dict[str, int] = {}
         for day in self.daily_tokens:
@@ -199,7 +188,6 @@ class UsageSnapshot:
 
 
 def _format_tokens(n: int) -> str:
-    """Format token count to human-readable string."""
     if n >= 1_000_000_000:
         return f"{n / 1_000_000_000:.1f}B"
     if n >= 1_000_000:
@@ -209,15 +197,13 @@ def _format_tokens(n: int) -> str:
     return str(n)
 
 
-def _scan_session_files() -> UsageSnapshot:
-    """Scan all session JSONL files for real usage data."""
+def _scan_session_files():
     claude_dir = get_claude_dir()
     projects_dir = claude_dir / "projects"
 
     if not projects_dir.exists():
         return UsageSnapshot(error="No projects directory found")
 
-    # Aggregate by day
     daily_data: dict[str, dict] = defaultdict(lambda: {
         "messages": 0, "sessions": set(),
         "input_tokens": 0, "output_tokens": 0,
@@ -239,7 +225,6 @@ def _scan_session_files() -> UsageSnapshot:
             session_id = f.stem
             session_msg_count = 0
 
-            # Fall back to file mtime if no per-message timestamps
             try:
                 fallback_mtime = datetime.fromtimestamp(f.stat().st_mtime)
             except OSError:
@@ -254,7 +239,6 @@ def _scan_session_files() -> UsageSnapshot:
                             if not isinstance(msg, dict) or "usage" not in msg:
                                 continue
 
-                            # Use per-message timestamp when available
                             ts_str = d.get("timestamp")
                             if ts_str:
                                 try:
@@ -286,7 +270,6 @@ def _scan_session_files() -> UsageSnapshot:
                             dd["model_total"][model] += inp + out + cr + cc
                             dd["hours"][hour] += 1
 
-                            # Aggregate model stats
                             if model not in model_agg:
                                 model_agg[model] = ModelStats(name=model)
                             ms = model_agg[model]
@@ -307,7 +290,6 @@ def _scan_session_files() -> UsageSnapshot:
                 total_sessions += 1
                 longest_msgs = max(longest_msgs, session_msg_count)
 
-    # Build snapshot
     snap = UsageSnapshot(
         total_sessions=total_sessions,
         total_messages=total_messages,
@@ -317,7 +299,6 @@ def _scan_session_files() -> UsageSnapshot:
         longest_session_messages=longest_msgs,
     )
 
-    # Build daily lists
     hour_totals: dict[int, int] = defaultdict(int)
     for day_str in sorted(daily_data):
         dd = daily_data[day_str]
@@ -340,6 +321,5 @@ def _scan_session_files() -> UsageSnapshot:
     return snap
 
 
-def load_stats(path: Path | None = None) -> UsageSnapshot:
-    """Load usage stats — scans session JSONL files for live data."""
+def load_stats(path=None):
     return _scan_session_files()

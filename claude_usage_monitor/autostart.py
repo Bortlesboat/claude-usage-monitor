@@ -1,4 +1,4 @@
-"""Cross-platform autostart and desktop shortcut management for Claude Usage Monitor."""
+"""Autostart and desktop shortcut setup."""
 
 import os
 import sys
@@ -12,8 +12,7 @@ APP_DISPLAY_NAME = "Claude Usage Monitor"
 MODULE_NAME = "claude_usage_monitor"
 
 
-def _get_platform() -> str:
-    """Return normalized platform: 'windows', 'macos', or 'linux'."""
+def _get_platform():
     system = platform.system().lower()
     if system == "windows":
         return "windows"
@@ -22,49 +21,39 @@ def _get_platform() -> str:
     return "linux"
 
 
-def _get_pythonw() -> str:
-    """Get the path to pythonw (Windows) or python3/python."""
+def _get_pythonw():
     if _get_platform() == "windows":
-        # Prefer pythonw to avoid console window
         pythonw = Path(sys.executable).parent / "pythonw.exe"
         if pythonw.exists():
             return str(pythonw)
     return sys.executable
 
 
-# ---------------------------------------------------------------------------
-# Path helpers
-# ---------------------------------------------------------------------------
-
-def _windows_startup_folder() -> Path:
-    """Return the Windows Startup folder path."""
+def _windows_startup_folder():
     appdata = os.environ.get("APPDATA", "")
     return Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
 
 
-def _windows_startup_vbs() -> Path:
+def _windows_startup_vbs():
     return _windows_startup_folder() / f"{APP_NAME}.vbs"
 
 
-def _macos_plist_path() -> Path:
+def _macos_plist_path():
     return Path.home() / "Library" / "LaunchAgents" / f"com.{APP_NAME}.plist"
 
 
-def _linux_autostart_path() -> Path:
+def _linux_autostart_path():
     config = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
     return Path(config) / "autostart" / f"{APP_NAME}.desktop"
 
 
-def _desktop_path() -> Path:
-    """Return the Desktop path."""
+def _desktop_path():
     if _get_platform() == "windows":
-        # Use the well-known USERPROFILE/Desktop; works for most setups
         userprofile = os.environ.get("USERPROFILE", str(Path.home()))
         return Path(userprofile) / "Desktop"
     elif _get_platform() == "macos":
         return Path.home() / "Desktop"
     else:
-        # Respect XDG if set
         try:
             result = subprocess.run(
                 ["xdg-user-dir", "DESKTOP"],
@@ -77,24 +66,16 @@ def _desktop_path() -> Path:
         return Path.home() / "Desktop"
 
 
-# ---------------------------------------------------------------------------
-# VBS script content (Windows)
-# ---------------------------------------------------------------------------
-
-def _vbs_launch_script() -> str:
-    """Return VBScript content that launches pythonw -m claude_usage_monitor silently."""
-    pythonw = _get_pythonw()  # VBS doesn't escape backslashes
+def _vbs_launch_script():
+    """VBScript that launches the monitor silently (no console window)."""
+    pythonw = _get_pythonw()  # VBS doesn't need backslash escaping
     return (
         'Set WshShell = CreateObject("WScript.Shell")\n'
         f'WshShell.Run """{pythonw}"" -m {MODULE_NAME}", 0, False\n'
     )
 
 
-# ---------------------------------------------------------------------------
-# macOS plist content
-# ---------------------------------------------------------------------------
-
-def _macos_plist_content() -> str:
+def _macos_plist_content():
     python = _get_pythonw()
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
@@ -122,11 +103,7 @@ def _macos_plist_content() -> str:
 """
 
 
-# ---------------------------------------------------------------------------
-# Linux .desktop content
-# ---------------------------------------------------------------------------
-
-def _linux_desktop_content() -> str:
+def _linux_desktop_content():
     python = _get_pythonw()
     return (
         "[Desktop Entry]\n"
@@ -139,12 +116,7 @@ def _linux_desktop_content() -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# Autostart: check / enable / disable / toggle
-# ---------------------------------------------------------------------------
-
-def is_autostart_enabled() -> bool:
-    """Check if autostart is currently configured."""
+def is_autostart_enabled():
     plat = _get_platform()
     if plat == "windows":
         return _windows_startup_vbs().exists()
@@ -154,10 +126,8 @@ def is_autostart_enabled() -> bool:
         return _linux_autostart_path().exists()
 
 
-def enable_autostart() -> tuple[bool, str]:
-    """Set up autostart for the current platform. Returns (success, message)."""
+def enable_autostart():
     plat = _get_platform()
-
     try:
         if plat == "windows":
             target = _windows_startup_vbs()
@@ -169,14 +139,13 @@ def enable_autostart() -> tuple[bool, str]:
             target = _macos_plist_path()
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(_macos_plist_content(), encoding="utf-8")
-            # Load the agent so it takes effect immediately
             subprocess.run(
                 ["launchctl", "load", str(target)],
                 capture_output=True, timeout=10,
             )
             return True, f"Autostart enabled: {target}"
 
-        else:  # linux
+        else:
             target = _linux_autostart_path()
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(_linux_desktop_content(), encoding="utf-8")
@@ -186,10 +155,8 @@ def enable_autostart() -> tuple[bool, str]:
         return False, f"Failed to enable autostart: {e}"
 
 
-def disable_autostart() -> tuple[bool, str]:
-    """Remove autostart configuration. Returns (success, message)."""
+def disable_autostart():
     plat = _get_platform()
-
     try:
         if plat == "windows":
             target = _windows_startup_vbs()
@@ -209,7 +176,7 @@ def disable_autostart() -> tuple[bool, str]:
                 return True, "Autostart disabled."
             return True, "Autostart was not enabled."
 
-        else:  # linux
+        else:
             target = _linux_autostart_path()
             if target.exists():
                 target.unlink()
@@ -220,21 +187,14 @@ def disable_autostart() -> tuple[bool, str]:
         return False, f"Failed to disable autostart: {e}"
 
 
-def toggle_autostart() -> tuple[bool, str]:
-    """Toggle autostart on/off. Returns (success, message)."""
+def toggle_autostart():
     if is_autostart_enabled():
         return disable_autostart()
     return enable_autostart()
 
 
-# ---------------------------------------------------------------------------
-# Desktop shortcut
-# ---------------------------------------------------------------------------
-
-def create_desktop_shortcut() -> tuple[bool, str]:
-    """Create a desktop shortcut. Returns (success, message)."""
+def create_desktop_shortcut():
     plat = _get_platform()
-
     try:
         if plat == "windows":
             desktop = _desktop_path()
@@ -250,13 +210,12 @@ def create_desktop_shortcut() -> tuple[bool, str]:
                 "To add to login items, use System Settings > General > Login Items."
             )
 
-        else:  # linux
+        else:
             desktop = _desktop_path()
             if not desktop.exists():
                 return False, f"Desktop folder not found: {desktop}"
             target = desktop / f"{APP_NAME}.desktop"
             target.write_text(_linux_desktop_content(), encoding="utf-8")
-            # Make executable so desktop environments recognize it
             target.chmod(0o755)
             return True, f"Desktop shortcut created: {target}"
 

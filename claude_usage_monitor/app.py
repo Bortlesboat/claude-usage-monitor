@@ -1,10 +1,10 @@
-"""Main application - system tray icon with usage monitoring."""
+"""System tray app."""
 
 from __future__ import annotations
 
+import atexit
 import os
 import sys
-import subprocess
 import threading
 import time
 import webbrowser
@@ -25,16 +25,15 @@ GITHUB_URL = "https://github.com/Bortlesboat/claude-usage-monitor"
 
 
 class ClaudeUsageApp:
-    """System tray application for monitoring Claude Code usage."""
 
     def __init__(self):
+        self._first_launch = not (get_claude_dir() / "usage-monitor-config.json").exists()
         self.config = load_config()
         self.snap: UsageSnapshot = load_stats()
-        self.live: LiveUsage = LiveUsage(windows=[])  # Populated async
+        self.live: LiveUsage = LiveUsage(windows=[])
         self.icon: pystray.Icon | None = None
         self._running = True
-        self._first_launch = not (get_claude_dir() / "usage-monitor-config.json").exists()
-        self._notified_thresholds: set[str] = set()  # Track which alerts have fired
+        self._notified_thresholds: set[str] = set()
 
     def _make_menu(self) -> Menu:
         items = build_menu_items(self.snap, self.config, self.live)
@@ -62,8 +61,7 @@ class ClaudeUsageApp:
 
         return Menu(*menu_items)
 
-    def _get_primary_pct(self) -> float:
-        """Get the primary usage % for icon display."""
+    def _get_primary_pct(self):
         if self.live and self.live.primary_window:
             return self.live.primary_window.utilization
         return self.snap.usage_pct(self.config)
@@ -81,7 +79,6 @@ class ClaudeUsageApp:
         return f"Claude Usage Monitor v{__version__}"
 
     def _update_icon(self):
-        """Update icon image, menu, and title."""
         if not self.icon:
             return
         pct = self._get_primary_pct()
@@ -90,7 +87,6 @@ class ClaudeUsageApp:
         self.icon.title = self._get_title()
 
     def _refresh(self, icon=None, item=None):
-        """Reload everything."""
         self.config = load_config()
         self.snap = load_stats()
         try:
@@ -100,8 +96,15 @@ class ClaudeUsageApp:
         self._update_icon()
         self._check_thresholds()
 
+    def _notify(self, message, title="Claude Usage Monitor"):
+        if not self.icon:
+            return
+        try:
+            self.icon.notify(message, title)
+        except Exception:
+            pass  # some pystray backends don't support this
+
     def _check_thresholds(self):
-        """Send notifications when usage crosses 80% or 90%."""
         if not self.icon or not self.live or self.live.error or not self.live.windows:
             return
         for w in self.live.windows:
@@ -109,7 +112,7 @@ class ClaudeUsageApp:
                 key = f"{w.name}_{threshold}"
                 if w.utilization >= threshold and key not in self._notified_thresholds:
                     self._notified_thresholds.add(key)
-                    self.icon.notify(
+                    self._notify(
                         f"{w.label} at {w.utilization:.0f}% — resets in {w.resets_in_display}",
                         "Usage Warning",
                     )
@@ -122,14 +125,12 @@ class ClaudeUsageApp:
 
     def _toggle_autostart(self, icon=None, item=None):
         success, message = toggle_autostart()
-        if self.icon:
-            self.icon.notify(message, "Claude Usage Monitor")
-            self._update_icon()
+        self._notify(message)
+        self._update_icon()
 
     def _create_shortcut(self, icon=None, item=None):
         success, message = create_desktop_shortcut()
-        if self.icon:
-            self.icon.notify(message, "Claude Usage Monitor")
+        self._notify(message)
 
     def _open_github(self, icon=None, item=None):
         webbrowser.open(GITHUB_URL)
@@ -142,21 +143,17 @@ class ClaudeUsageApp:
             available, current, remote = check_update()
 
             if not available:
+                self._notify(f"You're on the latest version (v{current})")
                 if self.icon:
-                    self.icon.notify(
-                        f"You're on the latest version (v{current})",
-                        "Claude Usage Monitor",
-                    )
                     self.icon.title = self._get_title()
                 return
 
-            if self.icon:
-                self.icon.notify(f"Updating v{current} \u2192 v{remote}...", "Claude Usage Monitor")
+            self._notify(f"Updating v{current} \u2192 v{remote}...")
 
             success, message = do_update()
 
+            self._notify(message)
             if self.icon:
-                self.icon.notify(message, "Claude Usage Monitor")
                 self.icon.title = self._get_title()
 
         threading.Thread(target=_run, daemon=True).start()
@@ -167,22 +164,16 @@ class ClaudeUsageApp:
             self.icon.stop()
 
     def _initial_api_fetch(self):
-        """Fetch API data in background so the icon appears instantly."""
         try:
             self.live = fetch_live_usage()
             self._update_icon()
         except Exception:
             pass
 
-        # First-launch notification
-        if self._first_launch and self.icon:
-            self.icon.notify(
-                "Right-click the tray icon to see your Claude usage stats.",
-                "Claude Usage Monitor",
-            )
+        if self._first_launch:
+            self._notify("Right-click the tray icon to see your Claude usage stats.")
 
     def _auto_refresh_loop(self):
-        """Background thread that refreshes periodically."""
         while self._running:
             time.sleep(60)
             if self._running:
@@ -192,7 +183,6 @@ class ClaudeUsageApp:
                     pass
 
     def run(self):
-        """Start the system tray application."""
         pct = self._get_primary_pct()
         self.icon = pystray.Icon(
             name="claude-usage",
@@ -201,45 +191,39 @@ class ClaudeUsageApp:
             menu=self._make_menu(),
         )
 
-        # Fetch API data in background (don't block startup)
         threading.Thread(target=self._initial_api_fetch, daemon=True).start()
-
-        # Periodic refresh
         threading.Thread(target=self._auto_refresh_loop, daemon=True).start()
 
         self.icon.run()
 
 
-def _check_single_instance() -> bool:
-    """Ensure only one instance is running. Returns True if this is the only one."""
+def _check_single_instance():
     lock_path = get_claude_dir() / "usage-monitor.lock"
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        # Write our PID. Check if existing PID is still alive.
         if lock_path.exists():
             try:
                 old_pid = int(lock_path.read_text().strip())
-                # Check if that process is still running
                 if sys.platform == "win32":
                     import ctypes
                     kernel32 = ctypes.windll.kernel32
-                    handle = kernel32.OpenProcess(0x1000, False, old_pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+                    handle = kernel32.OpenProcess(0x1000, False, old_pid)
                     if handle:
                         kernel32.CloseHandle(handle)
-                        return False  # Another instance is running
+                        return False
                 else:
-                    os.kill(old_pid, 0)  # Signal 0 = check existence
-                    return False  # Process exists
+                    os.kill(old_pid, 0)
+                    return False
             except (ValueError, OSError, ProcessLookupError):
-                pass  # Stale lock file
+                pass
         lock_path.write_text(str(os.getpid()))
+        atexit.register(lambda: lock_path.unlink(missing_ok=True))
         return True
     except OSError:
-        return True  # If we can't check, just run
+        return True
 
 
 def main():
-    """Entry point."""
     if not _check_single_instance():
         print("Claude Usage Monitor is already running.", file=sys.stderr)
         sys.exit(0)

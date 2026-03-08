@@ -1,4 +1,4 @@
-"""Self-update from GitHub."""
+"""Check for updates and install from PyPI."""
 
 from __future__ import annotations
 
@@ -10,15 +10,25 @@ from . import __version__
 
 REPO = "Bortlesboat/claude-usage-monitor"
 PYPI_PACKAGE = "claude-usage-tray"
-PYPROJECT_URL = f"https://raw.githubusercontent.com/{REPO}/master/pyproject.toml"
+_PYPROJECT_URLS = [
+    f"https://raw.githubusercontent.com/{REPO}/master/pyproject.toml",
+    f"https://raw.githubusercontent.com/{REPO}/main/pyproject.toml",
+]
 
 
-def get_remote_version() -> str | None:
-    """Fetch the version from the remote pyproject.toml."""
+def get_remote_version():
+    text = None
+    for url in _PYPROJECT_URLS:
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                text = resp.read().decode("utf-8")
+            break
+        except Exception:
+            continue
+    if text is None:
+        return None
     try:
-        req = urllib.request.Request(PYPROJECT_URL)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            text = resp.read().decode("utf-8")
         in_project = False
         for line in text.splitlines():
             stripped = line.strip()
@@ -33,16 +43,14 @@ def get_remote_version() -> str | None:
     return None
 
 
-def _parse_version(v: str) -> tuple[int, ...]:
-    """Parse version string to comparable tuple."""
+def _parse_version(v):
     try:
         return tuple(int(x) for x in v.strip().split("."))
     except (ValueError, AttributeError):
         return (0,)
 
 
-def check_update() -> tuple[bool, str, str]:
-    """Check if an update is available. Returns (available, current, remote)."""
+def check_update():
     remote = get_remote_version()
     if remote is None:
         return False, __version__, "unknown"
@@ -50,8 +58,7 @@ def check_update() -> tuple[bool, str, str]:
     return available, __version__, remote
 
 
-def do_update() -> tuple[bool, str]:
-    """Run pip install to update from PyPI. Returns (success, message)."""
+def do_update():
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "--upgrade", PYPI_PACKAGE],

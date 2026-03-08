@@ -1,4 +1,4 @@
-"""Fetch real-time usage data from Anthropic's OAuth usage API."""
+"""Live usage data from Anthropic's OAuth API."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from .config import get_claude_dir
 
 @dataclass
 class UsageWindow:
-    """A single rate limit window."""
     name: str
     label: str
     utilization: float  # 0-100
@@ -46,22 +45,19 @@ class UsageWindow:
 
 @dataclass
 class LiveUsage:
-    """Real-time usage from Anthropic API."""
     windows: list[UsageWindow]
     error: str | None = None
     extra_usage_enabled: bool = False
     extra_usage_utilization: float | None = None
 
     @property
-    def primary_window(self) -> UsageWindow | None:
-        """The most relevant window (highest utilization)."""
+    def primary_window(self):
         if not self.windows:
             return None
         return max(self.windows, key=lambda w: w.utilization)
 
 
-def _get_oauth_token() -> str | None:
-    """Get the OAuth access token from Claude's credentials."""
+def _get_oauth_token():
     creds_path = get_claude_dir() / ".credentials.json"
     if not creds_path.exists():
         return None
@@ -73,17 +69,16 @@ def _get_oauth_token() -> str | None:
         return None
 
 
-def _parse_reset_time(iso_str: str | None) -> datetime | None:
-    """Parse ISO datetime string to datetime."""
+def _parse_reset_time(iso_str):
     if not iso_str:
         return None
     try:
-        # Handle various ISO formats
-        s = iso_str.replace("+00:00", "+0000").replace("Z", "+0000")
-        if "+" in s[10:]:
-            # Has timezone
-            return datetime.fromisoformat(iso_str)
-        return datetime.fromisoformat(iso_str).replace(tzinfo=timezone.utc)
+        # Z suffix compat for Python 3.10
+        normalized = iso_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return None
 
@@ -98,19 +93,20 @@ WINDOW_CONFIG = {
 }
 
 
-# Simple cache to avoid hammering the API
 _cache: dict[str, tuple[float, LiveUsage]] = {}
-_CACHE_TTL = 60  # seconds — matches tray auto-refresh interval
-
-# Disk cache path — shared between tray (main process) and dashboard (subprocess)
-_DISK_CACHE_PATH = get_claude_dir() / "usage-monitor-cache.json"
+_CACHE_TTL = 60
 
 
-def _write_disk_cache(result: LiveUsage) -> None:
-    """Persist last successful API result so the dashboard subprocess can reuse it."""
+def _disk_cache_path():
+    return get_claude_dir() / "usage-monitor-cache.json"
+
+
+def _write_disk_cache(result):
+    """Write to disk so the dashboard subprocess doesn't need its own API call."""
     if result.error:
-        return  # Only cache successes to disk
+        return
     try:
+        path = _disk_cache_path()
         data = {
             "ts": _time.time(),
             "windows": [
@@ -125,17 +121,17 @@ def _write_disk_cache(result: LiveUsage) -> None:
             "extra_usage_enabled": result.extra_usage_enabled,
             "extra_usage_utilization": result.extra_usage_utilization,
         }
-        _DISK_CACHE_PATH.write_text(json.dumps(data), encoding="utf-8")
+        path.write_text(json.dumps(data), encoding="utf-8")
     except OSError:
         pass
 
 
-def _read_disk_cache() -> LiveUsage | None:
-    """Read cached API result from disk (written by the tray process)."""
+def _read_disk_cache():
     try:
-        if not _DISK_CACHE_PATH.exists():
+        path = _disk_cache_path()
+        if not path.exists():
             return None
-        data = json.loads(_DISK_CACHE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
         # Only use if fresh (< 60s old)
         if _time.time() - data.get("ts", 0) > 60:
             return None
@@ -156,8 +152,7 @@ def _read_disk_cache() -> LiveUsage | None:
         return None
 
 
-def fetch_live_usage() -> LiveUsage:
-    """Fetch live usage from Anthropic's OAuth API (cached for 30s)."""
+def fetch_live_usage():
     now = _time.monotonic()
     if "last" in _cache:
         ts, cached = _cache["last"]
@@ -165,21 +160,19 @@ def fetch_live_usage() -> LiveUsage:
         if now - ts < ttl:
             return cached
 
-    # Check disk cache first (avoids 429 when dashboard subprocess starts)
+    # Try disk cache first (shared with dashboard subprocess)
     disk = _read_disk_cache()
     if disk:
         _cache["last"] = (now, disk)
         return disk
 
     result = _fetch_live_usage_uncached()
-    # Cache successes for full TTL, errors for half (avoids hammering during outages)
     _cache["last"] = (now, result)
     _write_disk_cache(result)
     return result
 
 
-def _fetch_live_usage_uncached() -> LiveUsage:
-    """Actual API fetch (no cache)."""
+def _fetch_live_usage_uncached():
     token = _get_oauth_token()
     if not token:
         return LiveUsage(windows=[], error="Sign in to Claude Code first (run 'claude' in terminal)")

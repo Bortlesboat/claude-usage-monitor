@@ -1,16 +1,12 @@
-"""Tkinter dashboard window showing live usage vs plan limits.
-
-Can be run standalone: python -m claude_usage_monitor.dashboard
-"""
+"""Dashboard window. Run standalone: python -m claude_usage_monitor.dashboard"""
 
 from __future__ import annotations
 
+import platform
 import subprocess
 import sys
 import tkinter as tk
 from tkinter import ttk
-from datetime import datetime
-
 from .api_usage import LiveUsage, UsageWindow, fetch_live_usage
 from .config import (
     COLOR_ACCENT,
@@ -33,6 +29,15 @@ HEADER_FG = "#f0f0f0"
 SUBTLE_TEXT = "#777799"
 DIVIDER = "#2d2d4a"
 
+# Platform-appropriate font
+_system = platform.system()
+if _system == "Darwin":
+    FONT_FAMILY = "Helvetica Neue"
+elif _system == "Windows":
+    FONT_FAMILY = "Segoe UI"
+else:
+    FONT_FAMILY = "DejaVu Sans"
+
 
 def _pct_color(pct: float) -> str:
     if pct < 50:
@@ -43,7 +48,6 @@ def _pct_color(pct: float) -> str:
 
 
 class DashboardWindow:
-    """Dashboard focused on live usage windows and plan allowance."""
 
     def __init__(self, snap: UsageSnapshot | None = None, config: UserConfig | None = None,
                  live: LiveUsage | None = None):
@@ -69,25 +73,25 @@ class DashboardWindow:
         self.root.mainloop()
 
     def _refresh(self):
-        """Reload data in background, then rebuild UI on main thread."""
         import threading
 
         def _fetch():
             snap = load_stats()
             config = load_config()
             live = fetch_live_usage()
-            # Schedule UI rebuild on main thread
             if self.root:
                 self.root.after(0, lambda: self._apply_refresh(snap, config, live))
 
         threading.Thread(target=_fetch, daemon=True).start()
 
     def _apply_refresh(self, snap, config, live):
-        """Apply fetched data and rebuild UI (must run on main thread)."""
         self.snap = snap
         self.config = config
         self.live = live
         if self._canvas:
+            self._canvas.unbind_all("<MouseWheel>")
+            self._canvas.unbind_all("<Button-4>")
+            self._canvas.unbind_all("<Button-5>")
             self._canvas.destroy()
         if self._scrollbar:
             self._scrollbar.destroy()
@@ -99,14 +103,19 @@ class DashboardWindow:
         cfg = self.config
         live = self.live
 
-        # Scrollable frame
         canvas = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0, bd=0)
         scrollbar = ttk.Scrollbar(root, orient="vertical", command=canvas.yview)
         frame = tk.Frame(canvas, bg=COLOR_BG)
         frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.create_window((0, 0), window=frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
+        if _system == "Linux":
+            canvas.bind_all("<Button-4>", lambda e: canvas.yview_scroll(-1, "units"))
+            canvas.bind_all("<Button-5>", lambda e: canvas.yview_scroll(1, "units"))
+        elif _system == "Darwin":
+            canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(-e.delta, "units"))
+        else:
+            canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
         self._canvas = canvas
@@ -114,28 +123,27 @@ class DashboardWindow:
 
         px = 18  # Consistent horizontal padding
 
-        # ── Header ──
+        # Header
         header_frame = tk.Frame(frame, bg=COLOR_BG)
         header_frame.pack(fill="x", padx=px, pady=(20, 0))
         tk.Label(header_frame, text="Claude Code", fg=HEADER_FG, bg=COLOR_BG,
-                 font=("Segoe UI", 20, "bold"), anchor="w").pack(side="left")
+                 font=(FONT_FAMILY, 20, "bold"), anchor="w").pack(side="left")
 
-        # Right side: refresh button + plan label
         right_frame = tk.Frame(header_frame, bg=COLOR_BG)
         right_frame.pack(side="right")
         refresh_btn = tk.Button(
             right_frame, text="Refresh", fg=COLOR_ACCENT, bg=CARD_BG,
             activeforeground=HEADER_FG, activebackground="#3a3a5c",
-            font=("Segoe UI", 9), bd=0, padx=10, pady=2,
+            font=(FONT_FAMILY, 9), bd=0, padx=10, pady=2,
             cursor="hand2", command=self._refresh,
         )
         refresh_btn.pack(side="right", padx=(8, 0))
         tk.Label(right_frame, text=cfg.plan_label, fg=COLOR_ACCENT, bg=COLOR_BG,
-                 font=("Segoe UI", 11)).pack(side="right")
+                 font=(FONT_FAMILY, 11)).pack(side="right")
 
         self._divider(frame, px)
 
-        # ── Live Usage Windows ──
+        # Rate limits
         if live and not live.error and live.windows:
             self._section_label(frame, "RATE LIMITS", px)
 
@@ -149,21 +157,19 @@ class DashboardWindow:
             err_frame = tk.Frame(frame, bg=CARD_BG, padx=14, pady=10)
             err_frame.pack(fill="x", padx=px, pady=4)
             tk.Label(err_frame, text=f"Could not fetch live data: {live.error}",
-                     fg=COLOR_RED, bg=CARD_BG, font=("Segoe UI", 9), wraplength=460).pack(anchor="w")
+                     fg=COLOR_RED, bg=CARD_BG, font=(FONT_FAMILY, 9), wraplength=460).pack(anchor="w")
 
         self._divider(frame, px)
 
-        # ── Session Stats ──
+        # Stats
         self._section_label(frame, "SESSION STATS", px)
 
-        # Today row
         self._stat_cards(frame, px, [
             ("Today", f"{snap.today_messages:,}", "messages"),
             ("Output", _format_tokens(snap.today_output_tokens), "tokens today"),
             ("Sessions", str(snap.today_sessions), "today"),
         ])
 
-        # Period row
         used_output = snap.period_output_tokens(cfg)
         used_total = snap.period_total_tokens(cfg)
         self._stat_cards(frame, px, [
@@ -174,13 +180,13 @@ class DashboardWindow:
 
         self._divider(frame, px)
 
-        # ── Daily Chart ──
+        # Chart
         self._section_label(frame, "DAILY OUTPUT", px)
         self._daily_chart(frame, snap, cfg, px)
 
         self._divider(frame, px)
 
-        # ── All Time ──
+        # All time
         self._section_label(frame, "ALL TIME", px)
         all_time_frame = tk.Frame(frame, bg=CARD_BG, padx=14, pady=10)
         all_time_frame.pack(fill="x", padx=px, pady=4)
@@ -201,19 +207,17 @@ class DashboardWindow:
             row = tk.Frame(all_time_frame, bg=CARD_BG)
             row.pack(fill="x", pady=1)
             tk.Label(row, text=label, fg=SUBTLE_TEXT, bg=CARD_BG,
-                     font=("Segoe UI", 9), anchor="w", width=14).pack(side="left")
+                     font=(FONT_FAMILY, 9), anchor="w", width=14).pack(side="left")
             tk.Label(row, text=value, fg=COLOR_TEXT, bg=CARD_BG,
-                     font=("Segoe UI", 9, "bold"), anchor="e").pack(side="right")
+                     font=(FONT_FAMILY, 9, "bold"), anchor="e").pack(side="right")
 
-        # ── Footer ──
+        # Footer
         tk.Label(frame, text="Data: ~/.claude/ | Config: ~/.claude/usage-monitor-config.json",
-                 fg="#44445a", bg=COLOR_BG, font=("Segoe UI", 8)).pack(padx=px, pady=(16, 12))
+                 fg="#44445a", bg=COLOR_BG, font=(FONT_FAMILY, 8)).pack(padx=px, pady=(16, 12))
 
         tk.Frame(frame, bg=COLOR_BG, height=8).pack()
 
-    def _usage_gauge(self, parent, w: UsageWindow, snap: UsageSnapshot,
-                     cfg: UserConfig, px: int):
-        """Draw a polished usage gauge for a rate limit window."""
+    def _usage_gauge(self, parent, w, snap, cfg, px):
         pct = w.utilization
         color = _pct_color(pct)
         remaining_pct = max(100 - pct, 0)
@@ -221,23 +225,21 @@ class DashboardWindow:
         gauge = tk.Frame(parent, bg=CARD_BG, padx=16, pady=12)
         gauge.pack(fill="x", padx=px, pady=3)
 
-        # Top row: window name + big percentage
         top = tk.Frame(gauge, bg=CARD_BG)
         top.pack(fill="x")
 
         left_top = tk.Frame(top, bg=CARD_BG)
         left_top.pack(side="left", anchor="w")
         tk.Label(left_top, text=w.label, fg=HEADER_FG, bg=CARD_BG,
-                 font=("Segoe UI", 13, "bold")).pack(anchor="w")
+                 font=(FONT_FAMILY, 13, "bold")).pack(anchor="w")
 
         right_top = tk.Frame(top, bg=CARD_BG)
         right_top.pack(side="right", anchor="e")
         tk.Label(right_top, text=f"{pct:.0f}%", fg=color, bg=CARD_BG,
-                 font=("Segoe UI", 24, "bold")).pack(anchor="e")
+                 font=(FONT_FAMILY, 24, "bold")).pack(anchor="e")
         tk.Label(right_top, text="used", fg=SUBTLE_TEXT, bg=CARD_BG,
-                 font=("Segoe UI", 8)).pack(anchor="e")
+                 font=(FONT_FAMILY, 8)).pack(anchor="e")
 
-        # Progress bar with rounded feel
         bar_outer = tk.Frame(gauge, bg=COLOR_BAR_BG, height=12)
         bar_outer.pack(fill="x", pady=(8, 6))
         bar_outer.pack_propagate(False)
@@ -246,22 +248,20 @@ class DashboardWindow:
             bar_inner = tk.Frame(bar_outer, bg=color)
             bar_inner.place(x=0, y=0, relheight=1.0, relwidth=fill_w)
 
-        # Bottom row: remaining + reset time
         bottom = tk.Frame(gauge, bg=CARD_BG)
         bottom.pack(fill="x")
 
         tk.Label(bottom, text=f"{remaining_pct:.0f}% remaining", fg=SUBTLE_TEXT, bg=CARD_BG,
-                 font=("Segoe UI", 9), anchor="w").pack(side="left")
+                 font=(FONT_FAMILY, 9), anchor="w").pack(side="left")
 
         reset_text = f"Resets in {w.resets_in_display}"
-        if w.resets_at:
+        if w.resets_at and w.resets_at.tzinfo:
             local_reset = w.resets_at.astimezone()
             reset_text += f"  \u2022  {local_reset.strftime('%b %d, %I:%M %p').lstrip('0')}"
         tk.Label(bottom, text=reset_text, fg=SUBTLE_TEXT, bg=CARD_BG,
-                 font=("Segoe UI", 9), anchor="e").pack(side="right")
+                 font=(FONT_FAMILY, 9), anchor="e").pack(side="right")
 
-    def _stat_cards(self, parent, px: int, cards: list[tuple[str, str, str]]):
-        """Render a row of stat cards. Each card is (title, value, subtitle)."""
+    def _stat_cards(self, parent, px, cards):
         row = tk.Frame(parent, bg=COLOR_BG)
         row.pack(fill="x", padx=px, pady=3)
 
@@ -271,22 +271,21 @@ class DashboardWindow:
             row.columnconfigure(i, weight=1)
 
             tk.Label(card, text=title, fg=SUBTLE_TEXT, bg=CARD_BG,
-                     font=("Segoe UI", 8)).pack(anchor="w")
+                     font=(FONT_FAMILY, 8)).pack(anchor="w")
             tk.Label(card, text=value, fg=HEADER_FG, bg=CARD_BG,
-                     font=("Segoe UI", 15, "bold")).pack(anchor="w")
+                     font=(FONT_FAMILY, 15, "bold")).pack(anchor="w")
             tk.Label(card, text=subtitle, fg=SUBTLE_TEXT, bg=CARD_BG,
-                     font=("Segoe UI", 8)).pack(anchor="w")
+                     font=(FONT_FAMILY, 8)).pack(anchor="w")
 
     def _section_label(self, parent, text, px=18):
         tk.Label(parent, text=text, fg=SUBTLE_TEXT, bg=COLOR_BG,
-                 font=("Segoe UI", 9, "bold"), anchor="w",
+                 font=(FONT_FAMILY, 9, "bold"), anchor="w",
                  ).pack(fill="x", padx=px, pady=(14, 4))
 
     def _divider(self, parent, px):
         tk.Frame(parent, bg=DIVIDER, height=1).pack(fill="x", padx=px, pady=(8, 0))
 
-    def _daily_chart(self, parent, snap: UsageSnapshot, cfg: UserConfig, px: int):
-        """Bar chart of daily output token usage for the current billing period."""
+    def _daily_chart(self, parent, snap, cfg, px):
         chart_frame = tk.Frame(parent, bg=CARD_BG, padx=12, pady=10)
         chart_frame.pack(fill="x", padx=px, pady=4)
 
@@ -298,7 +297,7 @@ class DashboardWindow:
 
         if not days:
             canvas.create_text(200, 60, text="No usage data this period", fill=SUBTLE_TEXT,
-                               font=("Segoe UI", 10))
+                               font=(FONT_FAMILY, 10))
             return
 
         canvas.update_idletasks()
@@ -325,19 +324,21 @@ class DashboardWindow:
             # Date label
             label = day.date[5:]  # MM-DD
             canvas.create_text(x + bar_w // 2, h - 8, text=label, fill=SUBTLE_TEXT,
-                               font=("Segoe UI", 7))
+                               font=(FONT_FAMILY, 7))
 
             # Value on top
             if bar_h > 18:
                 canvas.create_text(x + bar_w // 2, y - 8, text=_format_tokens(tokens),
-                                   fill=HEADER_FG, font=("Segoe UI", 8))
+                                   fill=HEADER_FG, font=(FONT_FAMILY, 8))
 
 
 def open_dashboard():
-    """Open dashboard as a separate process."""
+    kwargs = {}
+    if sys.platform == "win32":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.Popen(
         [sys.executable, "-m", "claude_usage_monitor.dashboard"],
-        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        **kwargs,
     )
 
 

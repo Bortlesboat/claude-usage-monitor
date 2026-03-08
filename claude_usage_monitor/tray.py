@@ -1,4 +1,4 @@
-"""System tray icon and menu for Claude Usage Monitor."""
+"""Tray icon and menu builder."""
 
 from __future__ import annotations
 
@@ -11,9 +11,7 @@ from .config import UserConfig, load_config
 from .stats import UsageSnapshot, _format_tokens
 
 
-def create_icon_image(text: str = "CC", bg_color: str = "#1a1a2e",
-                      text_color: str = "#d4a574") -> Image.Image:
-    """Create a tray icon with text and optional color-coded background."""
+def create_icon_image(text="CC", bg_color="#1a1a2e", text_color="#d4a574"):
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -24,11 +22,9 @@ def create_icon_image(text: str = "CC", bg_color: str = "#1a1a2e",
         font = ImageFont.truetype("arial.ttf", 22)
     except OSError:
         try:
-            # macOS
             font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 22)
         except OSError:
             try:
-                # Linux
                 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
             except OSError:
                 font = ImageFont.load_default()
@@ -45,8 +41,7 @@ def create_icon_image(text: str = "CC", bg_color: str = "#1a1a2e",
     return img
 
 
-def get_icon_for_usage(pct: float) -> Image.Image:
-    """Create icon with color reflecting usage level."""
+def get_icon_for_usage(pct):
     if pct >= 80:
         bg = "#3d1f1f"
         color = "#e07a5f"
@@ -67,9 +62,7 @@ def get_icon_for_usage(pct: float) -> Image.Image:
     return create_icon_image(text, bg_color=bg, text_color=color)
 
 
-def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
-                     live: LiveUsage | None = None) -> list[tuple]:
-    """Build menu items. Returns list of (label, action_or_None)."""
+def build_menu_items(snap, config=None, live=None):
     cfg = config or load_config()
     items = []
 
@@ -79,7 +72,7 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
         items.append(("Quit", "quit"))
         return items
 
-    # ── Live rate limits ──
+    # Rate limits
     if live and not live.error and live.windows:
         for w in sorted(live.windows, key=lambda w: w.name):
             if w.utilization == 0 and "sonnet" in w.name.lower():
@@ -92,21 +85,17 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
         items.append((f"{live.error}", None))
         items.append(("---", None))
 
-    # ── Today ──
     items.append((f"Today:  {snap.today_messages:,} msgs  \u2022  {_format_tokens(snap.today_output_tokens)} output  \u2022  {snap.today_sessions} sessions", None))
 
-    # ── This billing cycle ──
     used = snap.period_output_tokens(cfg)
     total = snap.period_total_tokens(cfg)
     since = cfg.current_period_start.strftime("%b %d")
     items.append((f"Since {since}:  {_format_tokens(used)} output  ({_format_tokens(total)} total)  \u2022  {snap.period_messages(cfg):,} msgs", None))
     items.append(("---", None))
 
-    # ── Actions ──
     items.append(("Open Dashboard", "dashboard"))
     items.append(("---", None))
 
-    # Autostart toggle
     autostart_label = "Start on Login  (on)" if is_autostart_enabled() else "Start on Login  (off)"
     items.append((autostart_label, "toggle_autostart"))
     items.append(("Create Desktop Shortcut", "create_shortcut"))
