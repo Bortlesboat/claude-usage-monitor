@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw, ImageFont
 
+from .api_usage import LiveUsage, fetch_live_usage
 from .config import UserConfig, load_config
 from .stats import UsageSnapshot, _format_tokens
 
@@ -36,7 +37,8 @@ def create_icon_image(text: str = "CC", color: str = "#d4a574") -> Image.Image:
     return img
 
 
-def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None) -> list[tuple]:
+def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
+                     live: LiveUsage | None = None) -> list[tuple]:
     """Build menu items from usage snapshot. Returns list of (label, callback_or_None)."""
     cfg = config or load_config()
     items = []
@@ -47,37 +49,25 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None) -> l
         items.append(("Quit", "quit"))
         return items
 
-    # Plan usage header
-    pct = snap.usage_pct(cfg)
-    used_output = snap.period_output_tokens(cfg)
-    limit = cfg.output_token_limit
-    remaining = max(limit - used_output, 0)
-
-    items.append((f"{cfg.plan_label}  —  {pct:.1f}% used", None))
-    items.append((f"{_format_tokens(used_output)} / {_format_tokens(limit)} output tokens", None))
-    items.append(("---", None))
-
-    # Reset
-    days_left = cfg.days_until_reset
-    items.append((f"Resets in {days_left} day{'s' if days_left != 1 else ''} ({cfg.next_reset.strftime('%b %d')})", None))
-    items.append((f"Tokens remaining: {_format_tokens(remaining)}", None))
-    items.append((f"Daily budget: {_format_tokens(snap.daily_budget(cfg))}/day", None))
-    items.append(("---", None))
+    # ── Live API Usage (primary focus) ──
+    if live and not live.error and live.windows:
+        for w in sorted(live.windows, key=lambda w: w.name):
+            pct = w.utilization
+            reset = w.resets_in_display
+            bar = _usage_bar(pct)
+            items.append((f"{w.label}: {bar} {pct:.0f}%  (resets {reset})", None))
+        items.append(("---", None))
+    elif live and live.error:
+        items.append((f"API: {live.error[:60]}", None))
+        items.append(("---", None))
 
     # Today
-    items.append((f"Today: {snap.today_messages} msgs, {_format_tokens(snap.today_tokens)} tokens", None))
+    items.append((f"Today: {snap.today_messages} msgs, {_format_tokens(snap.today_output_tokens)} output", None))
     items.append(("---", None))
 
-    # Projected
-    proj = snap.projected_usage_pct(cfg)
-    if proj > 100:
-        items.append((f"Projected: {proj:.0f}% (over limit!)", None))
-    else:
-        items.append((f"Projected: {proj:.0f}% at end of period", None))
-    items.append(("---", None))
-
-    # All time (compact)
-    items.append((f"All time: {snap.total_sessions} sessions, {snap.total_messages:,} msgs", None))
+    # Period stats
+    used_output = snap.period_output_tokens(cfg)
+    items.append((f"Period: {_format_tokens(used_output)} output, {snap.period_messages(cfg):,} msgs", None))
     items.append(("---", None))
 
     items.append(("Open Dashboard", "dashboard"))
@@ -86,3 +76,11 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None) -> l
     items.append(("Quit", "quit"))
 
     return items
+
+
+def _usage_bar(pct: float, width: int = 10) -> str:
+    """Create a text-based usage bar like [████░░░░░░]."""
+    filled = int(pct / 100 * width)
+    filled = min(filled, width)
+    empty = width - filled
+    return f"[{'█' * filled}{'░' * empty}]"

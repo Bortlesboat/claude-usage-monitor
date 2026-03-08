@@ -12,6 +12,7 @@ import pystray
 from pystray import MenuItem, Menu
 
 from . import __version__
+from .api_usage import LiveUsage, fetch_live_usage
 from .config import load_config
 from .dashboard import open_dashboard
 from .stats import UsageSnapshot, _format_tokens, load_stats
@@ -25,12 +26,13 @@ class ClaudeUsageApp:
     def __init__(self):
         self.config = load_config()
         self.snap: UsageSnapshot = load_stats()
+        self.live: LiveUsage = fetch_live_usage()
         self.icon: pystray.Icon | None = None
         self._running = True
 
     def _make_menu(self) -> Menu:
         """Build the pystray menu from current snapshot."""
-        items = build_menu_items(self.snap, self.config)
+        items = build_menu_items(self.snap, self.config, self.live)
         menu_items = []
 
         for label, action in items:
@@ -50,25 +52,38 @@ class ClaudeUsageApp:
         return Menu(*menu_items)
 
     def _get_icon_text(self) -> str:
-        """Get usage % for the icon."""
-        pct = self.snap.usage_pct(self.config)
+        """Show the primary usage % on the icon."""
+        if self.live and self.live.primary_window:
+            pct = self.live.primary_window.utilization
+        else:
+            pct = self.snap.usage_pct(self.config)
         if pct >= 100:
             return "!!"
         if pct >= 10:
             return f"{pct:.0f}"
-        if pct > 0:
-            return f"{pct:.0f}%"
-        return "CC"
+        return f"{pct:.0f}%"
+
+    def _get_title(self) -> str:
+        """Hover tooltip text."""
+        if self.live and not self.live.error and self.live.windows:
+            parts = []
+            for w in sorted(self.live.windows, key=lambda w: w.name):
+                parts.append(f"{w.label}: {w.utilization:.0f}%")
+            return " | ".join(parts)
+        return f"Claude Code v{__version__}"
 
     def _refresh(self, icon=None, item=None):
-        """Reload stats from disk."""
+        """Reload stats and live usage."""
         self.config = load_config()
         self.snap = load_stats()
+        try:
+            self.live = fetch_live_usage()
+        except Exception:
+            pass
         if self.icon:
-            pct = self.snap.usage_pct(self.config)
             self.icon.icon = create_icon_image(self._get_icon_text())
             self.icon.menu = self._make_menu()
-            self.icon.title = f"Claude Code - {pct:.1f}% of plan used"
+            self.icon.title = self._get_title()
 
     def _open_dashboard(self, icon=None, item=None):
         """Open the dashboard window as a separate process."""
@@ -86,20 +101,15 @@ class ClaudeUsageApp:
             if not available:
                 if self.icon:
                     self.icon.title = f"Claude Code v{current} - Up to date!"
-                    # Show notification
                     self.icon.notify(
                         f"You're on the latest version (v{current})",
                         "Claude Usage Monitor",
                     )
                 return
 
-            # Update available — apply it
             if self.icon:
                 self.icon.title = f"Claude Code - Updating v{current} -> v{remote}..."
-                self.icon.notify(
-                    f"Updating v{current} -> v{remote}...",
-                    "Claude Usage Monitor",
-                )
+                self.icon.notify(f"Updating v{current} -> v{remote}...", "Claude Usage Monitor")
 
             success, message = do_update()
 
@@ -119,9 +129,9 @@ class ClaudeUsageApp:
             self.icon.stop()
 
     def _auto_refresh_loop(self):
-        """Background thread that refreshes stats periodically."""
+        """Background thread that refreshes stats and live usage periodically."""
         while self._running:
-            time.sleep(30)
+            time.sleep(60)  # API calls — refresh every 60s
             if self._running:
                 try:
                     self._refresh()
@@ -133,11 +143,10 @@ class ClaudeUsageApp:
         self.icon = pystray.Icon(
             name="claude-usage",
             icon=create_icon_image(self._get_icon_text()),
-            title=f"Claude Code v{__version__} - {self.snap.usage_pct(self.config):.1f}% of plan used",
+            title=self._get_title(),
             menu=self._make_menu(),
         )
 
-        # Start auto-refresh thread
         refresh_thread = threading.Thread(target=self._auto_refresh_loop, daemon=True)
         refresh_thread.start()
 
