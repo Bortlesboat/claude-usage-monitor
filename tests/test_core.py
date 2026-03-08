@@ -130,7 +130,7 @@ class TestUsageWindowResetsInDisplay:
         assert w.resets_in_display == "0m"
 
     def test_exactly_one_hour(self):
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(timezone.utc) + timedelta(hours=1, seconds=30)
         w = UsageWindow(name="test", label="Test", utilization=50.0, resets_at=future)
         display = w.resets_in_display
         assert "1h" in display
