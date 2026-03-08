@@ -2,6 +2,7 @@
 
 A system tray app that shows your **real-time Claude Code usage** — rate limits, reset timers, plan comparison, and token stats — all from a single icon.
 
+[![PyPI](https://img.shields.io/pypi/v/claude-usage-tray.svg)](https://pypi.org/project/claude-usage-tray/)
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
@@ -68,21 +69,28 @@ Click "Open Dashboard" for a detailed breakdown:
 
 ## Quick Start
 
-### Option 1: pip (simplest)
+### Option 1: pip from PyPI (recommended)
+
+```bash
+pip install claude-usage-tray
+claude-usage
+```
+
+### Option 2: pipx (isolated environment)
+
+```bash
+pipx install claude-usage-tray
+claude-usage
+```
+
+### Option 3: pip from GitHub (latest dev)
 
 ```bash
 pip install git+https://github.com/Bortlesboat/claude-usage-monitor.git
 python -m claude_usage_monitor
 ```
 
-### Option 2: pipx (isolated environment)
-
-```bash
-pipx install git+https://github.com/Bortlesboat/claude-usage-monitor.git
-claude-usage
-```
-
-### Option 3: Clone and run
+### Option 4: Clone and run
 
 ```bash
 git clone https://github.com/Bortlesboat/claude-usage-monitor.git
@@ -166,7 +174,7 @@ You may need a system tray / app indicator extension. On GNOME, install the [App
 Click "Check for Updates" in the tray menu, or manually:
 
 ```bash
-pip install --upgrade git+https://github.com/Bortlesboat/claude-usage-monitor.git
+pip install --upgrade claude-usage-tray
 ```
 
 ## License

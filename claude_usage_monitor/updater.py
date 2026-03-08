@@ -11,8 +11,8 @@ from typing import Any
 from . import __version__
 
 REPO = "Bortlesboat/claude-usage-monitor"
+PYPI_PACKAGE = "claude-usage-tray"
 PYPROJECT_URL = f"https://raw.githubusercontent.com/{REPO}/master/pyproject.toml"
-PIP_URL = f"git+https://github.com/{REPO}.git"
 
 
 def get_remote_version() -> str | None:
@@ -50,6 +50,14 @@ def check_update() -> tuple[bool, str, str]:
 def do_update() -> tuple[bool, str]:
     """Run pip install to update. Returns (success, message)."""
     try:
+        # Try PyPI first (faster, more reliable), fall back to GitHub
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "--upgrade", PYPI_PACKAGE],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result.returncode == 0:
+            return True, "Updated successfully. Restart the app to use the new version."
+        # Fall back to GitHub install
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", "--upgrade",
              f"git+https://github.com/{REPO}.git"],
