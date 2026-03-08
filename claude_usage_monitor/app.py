@@ -60,9 +60,9 @@ class ClaudeUsageApp:
             self.icon.title = title
 
     def _open_dashboard(self, icon=None, item=None):
-        """Open the dashboard window."""
+        """Open the dashboard window as a separate process."""
         self._refresh()
-        open_dashboard(self.snap)
+        open_dashboard()
 
     def _quit(self, icon=None, item=None):
         """Stop the tray icon."""

@@ -1,7 +1,12 @@
-"""Tkinter dashboard window showing detailed usage charts and stats."""
+"""Tkinter dashboard window showing detailed usage charts and stats.
+
+Can be run standalone: python -m claude_usage_monitor.dashboard
+"""
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import tkinter as tk
 from tkinter import ttk
 from datetime import datetime, timedelta
@@ -33,7 +38,6 @@ class DashboardWindow:
         self.root.geometry("520x680")
         self.root.resizable(True, True)
 
-        # Try to set icon
         try:
             self.root.iconbitmap(default="")
         except Exception:
@@ -55,7 +59,6 @@ class DashboardWindow:
         canvas.create_window((0, 0), window=frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        # Mouse wheel scrolling
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
         canvas.bind_all("<MouseWheel>", _on_mousewheel)
@@ -158,7 +161,6 @@ class DashboardWindow:
         canvas = tk.Canvas(parent, bg=COLOR_BG, height=120, highlightthickness=0)
         canvas.pack(fill="x", padx=20, pady=4)
 
-        # Get last 14 days of data
         cutoff = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
         days = [d for d in snap.daily_activity if d.date >= cutoff]
 
@@ -185,12 +187,10 @@ class DashboardWindow:
             color = COLOR_BAR_HIGH if day.messages == max_msgs else COLOR_BAR_FILL
             canvas.create_rectangle(x, y, x + bar_w, h - margin_bottom, fill=color, outline="")
 
-            # Date label (show day of month)
-            label = day.date[-2:]  # DD
+            label = day.date[-2:]
             canvas.create_text(x + bar_w // 2, h - 10, text=label, fill=COLOR_SECONDARY,
                                font=("Segoe UI", 7))
 
-            # Value on top
             if bar_h > 15:
                 canvas.create_text(x + bar_w // 2, y - 8, text=str(day.messages),
                                    fill=COLOR_TEXT, font=("Segoe UI", 7))
@@ -213,10 +213,14 @@ class DashboardWindow:
             self._bar_row(chart_frame, label, count, max_count, str(count))
 
 
-def open_dashboard(snap: UsageSnapshot | None = None):
-    """Open dashboard in a new thread (non-blocking)."""
-    def _run():
-        DashboardWindow(snap).show()
+def open_dashboard():
+    """Open dashboard as a separate process (avoids tkinter threading issues)."""
+    subprocess.Popen(
+        [sys.executable, "-m", "claude_usage_monitor.dashboard"],
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+    )
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
+
+# Allow running standalone: python -m claude_usage_monitor.dashboard
+if __name__ == "__main__":
+    DashboardWindow().show()
