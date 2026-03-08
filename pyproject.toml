@@ -19,7 +19,6 @@ classifiers = [
     "Environment :: X11 Applications",
     "Environment :: MacOS X",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Topic :: Utilities",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
@@ -34,6 +33,9 @@ dependencies = [
     "pystray>=0.19",
     "Pillow>=10.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["claude_usage_monitor*"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
