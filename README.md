@@ -44,33 +44,51 @@ Refresh
 Quit
 ```
 
-## Installation
+## Quick Start
 
-### From PyPI (coming soon)
+### Option 1: pipx (recommended)
+
+[pipx](https://pipx.pypa.io/) installs Python CLI tools in isolated environments and handles PATH automatically.
 
 ```bash
-pip install claude-usage-monitor
+# Install pipx if you don't have it
+pip install pipx
+pipx ensurepath
+
+# Install claude-usage-monitor
+pipx install git+https://github.com/Bortlesboat/claude-usage-monitor.git
+
+# Run it
+claude-usage
 ```
 
-### From source
+### Option 2: pip + python module
+
+```bash
+pip install git+https://github.com/Bortlesboat/claude-usage-monitor.git
+
+# Run as a module (works even if scripts aren't on PATH)
+python -m claude_usage_monitor
+```
+
+### Option 3: Clone and run
 
 ```bash
 git clone https://github.com/Bortlesboat/claude-usage-monitor.git
 cd claude-usage-monitor
 pip install .
+python -m claude_usage_monitor
 ```
 
 ## Usage
 
-```bash
-# Run from command line
-claude-usage
+The icon appears in your system tray (bottom-right on Windows, menu bar on macOS).
 
-# Or as a Python module
-python -m claude_usage_monitor
-```
+- **Right-click** the icon to see quick stats
+- **Click "Open Dashboard"** for the full visual breakdown with charts
+- **Click "Quit"** to close
 
-The icon appears in your system tray. Right-click for stats, or click "Open Dashboard" for the full visual breakdown.
+The app auto-refreshes every 30 seconds.
 
 ## Requirements
 
@@ -80,7 +98,7 @@ The icon appears in your system tray. Right-click for stats, or click "Open Dash
 
 ### Linux dependencies
 
-On Linux, you may need to install `python3-tk` and a notification daemon:
+On Linux, you may need:
 
 ```bash
 # Ubuntu/Debian
@@ -105,14 +123,19 @@ Claude Code stores usage statistics in `~/.claude/stats-cache.json`. This app re
 | Peak usage hours | `hourCounts` |
 | Longest session | `longestSession` |
 
-## Development
+## Troubleshooting
 
-```bash
-git clone https://github.com/Bortlesboat/claude-usage-monitor.git
-cd claude-usage-monitor
-pip install -e .
-claude-usage
-```
+### `claude-usage` command not found (Windows)
+
+Windows Store Python installs scripts to a directory not on PATH. Use `python -m claude_usage_monitor` instead, or install with `pipx` which handles PATH automatically.
+
+### No data showing
+
+Make sure you've used Claude Code at least once — it creates `~/.claude/stats-cache.json` after your first session.
+
+### Tray icon not visible (Linux)
+
+You may need a system tray / app indicator extension. On GNOME, install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/).
 
 ## License
 
