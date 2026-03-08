@@ -92,7 +92,8 @@ class DashboardWindow:
 
         # ── Big Usage Gauge ──
         pct = snap.usage_pct(cfg)
-        used = snap.period_tokens(cfg)
+        used_output = snap.period_output_tokens(cfg)
+        used_total = snap.period_total_tokens(cfg)
         limit = cfg.output_token_limit
         color = _pct_color(pct)
 
@@ -103,8 +104,10 @@ class DashboardWindow:
                  font=("Segoe UI", 36, "bold")).pack()
         tk.Label(gauge_frame, text="of plan used this period", fg=COLOR_SECONDARY, bg="#2d2d44",
                  font=("Segoe UI", 10)).pack()
-        tk.Label(gauge_frame, text=f"{_format_tokens(used)} / {_format_tokens(limit)} tokens",
+        tk.Label(gauge_frame, text=f"{_format_tokens(used_output)} / {_format_tokens(limit)} output tokens",
                  fg=COLOR_TEXT, bg="#2d2d44", font=("Segoe UI", 12)).pack(pady=(4, 0))
+        tk.Label(gauge_frame, text=f"({_format_tokens(used_total)} total incl. cache & input)",
+                 fg=COLOR_SECONDARY, bg="#2d2d44", font=("Segoe UI", 9)).pack()
 
         # Usage bar
         bar_outer = tk.Frame(gauge_frame, bg=COLOR_BAR_BG, height=20)
@@ -174,12 +177,12 @@ class DashboardWindow:
 
         period_msgs = snap.period_messages(cfg)
         period_sessions = snap.period_sessions(cfg)
-        remaining = max(limit - used, 0)
+        remaining = max(limit - used_output, 0)
 
         cards = [
             ("Messages", f"{period_msgs:,}"),
             ("Sessions", str(period_sessions)),
-            ("Tokens left", _format_tokens(remaining)),
+            ("Output left", _format_tokens(remaining)),
         ]
         for i, (title, value) in enumerate(cards):
             card = tk.Frame(period_frame, bg="#2d2d44", padx=12, pady=8)

@@ -49,12 +49,12 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None) -> l
 
     # Plan usage header
     pct = snap.usage_pct(cfg)
-    used = snap.period_tokens(cfg)
+    used_output = snap.period_output_tokens(cfg)
     limit = cfg.output_token_limit
-    remaining = max(limit - used, 0)
+    remaining = max(limit - used_output, 0)
 
     items.append((f"{cfg.plan_label}  —  {pct:.1f}% used", None))
-    items.append((f"{_format_tokens(used)} / {_format_tokens(limit)} tokens", None))
+    items.append((f"{_format_tokens(used_output)} / {_format_tokens(limit)} output tokens", None))
     items.append(("---", None))
 
     # Reset
