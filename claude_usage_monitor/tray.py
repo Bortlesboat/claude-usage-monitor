@@ -8,7 +8,7 @@ from . import __version__
 from .api_usage import LiveUsage
 from .autostart import is_autostart_enabled
 from .config import UserConfig, load_config
-from .stats import UsageSnapshot, _format_tokens
+from .stats import UsageSnapshot, format_tokens
 
 
 def create_icon_image(text="CC", bg_color="#1a1a2e", text_color="#d4a574"):
@@ -85,12 +85,12 @@ def build_menu_items(snap, config=None, live=None):
         items.append((f"{live.error}", None))
         items.append(("---", None))
 
-    items.append((f"Today:  {snap.today_messages:,} msgs  \u2022  {_format_tokens(snap.today_output_tokens)} output  \u2022  {snap.today_sessions} sessions", None))
+    items.append((f"Today:  {snap.today_messages:,} msgs  \u2022  {format_tokens(snap.today_output_tokens)} output  \u2022  {snap.today_sessions} sessions", None))
 
     used = snap.period_output_tokens(cfg)
     total = snap.period_total_tokens(cfg)
     since = cfg.current_period_start.strftime("%b %d")
-    items.append((f"Since {since}:  {_format_tokens(used)} output  ({_format_tokens(total)} total)  \u2022  {snap.period_messages(cfg):,} msgs", None))
+    items.append((f"Since {since}:  {format_tokens(used)} output  ({format_tokens(total)} total)  \u2022  {snap.period_messages(cfg):,} msgs", None))
     items.append(("---", None))
 
     items.append(("Open Dashboard", "dashboard"))

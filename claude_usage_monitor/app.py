@@ -17,7 +17,7 @@ from .api_usage import LiveUsage, fetch_live_usage
 from .autostart import create_desktop_shortcut, toggle_autostart
 from .config import get_claude_dir, load_config
 from .dashboard import open_dashboard
-from .stats import UsageSnapshot, _format_tokens, load_stats
+from .stats import UsageSnapshot, format_tokens, load_stats
 from .tray import build_menu_items, get_icon_for_usage
 from .updater import check_update, do_update
 
@@ -33,6 +33,7 @@ class ClaudeUsageApp:
         self.live: LiveUsage = LiveUsage(windows=[])
         self.icon: pystray.Icon | None = None
         self._running = True
+        self._lock = threading.Lock()
         self._notified_thresholds: set[str] = set()
 
     def _make_menu(self) -> Menu:
@@ -87,12 +88,16 @@ class ClaudeUsageApp:
         self.icon.title = self._get_title()
 
     def _refresh(self, icon=None, item=None):
-        self.config = load_config()
-        self.snap = load_stats()
+        config = load_config()
+        snap = load_stats()
         try:
-            self.live = fetch_live_usage()
+            live = fetch_live_usage()
         except Exception:
-            pass
+            live = self.live
+        with self._lock:
+            self.config = config
+            self.snap = snap
+            self.live = live
         self._update_icon()
         self._check_thresholds()
 
@@ -197,14 +202,21 @@ class ClaudeUsageApp:
         self.icon.run()
 
 
+_LOCK_SENTINEL = "claude-usage-monitor"
+
+
 def _check_single_instance():
     lock_path = get_claude_dir() / "usage-monitor.lock"
     try:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         if lock_path.exists():
             try:
-                old_pid = int(lock_path.read_text().strip())
-                if sys.platform == "win32":
+                parts = lock_path.read_text().strip().split("\n")
+                old_pid = int(parts[0])
+                sentinel = parts[1] if len(parts) > 1 else ""
+                if sentinel != _LOCK_SENTINEL:
+                    pass  # Stale lock from old version, overwrite it
+                elif sys.platform == "win32":
                     import ctypes
                     kernel32 = ctypes.windll.kernel32
                     handle = kernel32.OpenProcess(0x1000, False, old_pid)
@@ -216,7 +228,7 @@ def _check_single_instance():
                     return False
             except (ValueError, OSError, ProcessLookupError):
                 pass
-        lock_path.write_text(str(os.getpid()))
+        lock_path.write_text(f"{os.getpid()}\n{_LOCK_SENTINEL}")
         atexit.register(lambda: lock_path.unlink(missing_ok=True))
         return True
     except OSError:

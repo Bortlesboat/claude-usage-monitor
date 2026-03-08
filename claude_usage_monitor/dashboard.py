@@ -19,7 +19,7 @@ from .config import (
     UserConfig,
     load_config,
 )
-from .stats import UsageSnapshot, _format_tokens, load_stats
+from .stats import UsageSnapshot, format_tokens, load_stats
 
 # Refined palette
 CARD_BG = "#242440"
@@ -166,7 +166,7 @@ class DashboardWindow:
 
         self._stat_cards(frame, px, [
             ("Today", f"{snap.today_messages:,}", "messages"),
-            ("Output", _format_tokens(snap.today_output_tokens), "tokens today"),
+            ("Output", format_tokens(snap.today_output_tokens), "tokens today"),
             ("Sessions", str(snap.today_sessions), "today"),
         ])
 
@@ -174,7 +174,7 @@ class DashboardWindow:
         used_total = snap.period_total_tokens(cfg)
         self._stat_cards(frame, px, [
             ("This Period", f"{snap.period_messages(cfg):,}", "messages"),
-            ("Output", _format_tokens(used_output), f"tokens ({_format_tokens(used_total)} total)"),
+            ("Output", format_tokens(used_output), f"tokens ({format_tokens(used_total)} total)"),
             ("Sessions", str(snap.period_sessions(cfg)), f"since {cfg.current_period_start.strftime('%b %d')}"),
         ])
 
@@ -195,8 +195,8 @@ class DashboardWindow:
             ("Sessions", str(snap.total_sessions)),
             ("Messages", f"{snap.total_messages:,}"),
             ("Days active", str(snap.days_active)),
-            ("Output tokens", _format_tokens(snap.total_output_tokens)),
-            ("Total tokens", _format_tokens(snap.total_tokens)),
+            ("Output tokens", format_tokens(snap.total_output_tokens)),
+            ("Total tokens", format_tokens(snap.total_tokens)),
         ]
         if snap.peak_hour is not None:
             rows.append(("Peak hour", f"{snap.peak_hour:02d}:00"))
@@ -328,7 +328,7 @@ class DashboardWindow:
 
             # Value on top
             if bar_h > 18:
-                canvas.create_text(x + bar_w // 2, y - 8, text=_format_tokens(tokens),
+                canvas.create_text(x + bar_w // 2, y - 8, text=format_tokens(tokens),
                                    fill=HEADER_FG, font=(FONT_FAMILY, 8))
 
 

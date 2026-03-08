@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "claude-usage-tray"
 version = "3.0.0"
-description = "System tray app showing real-time Claude Code usage — rate limits, reset timers, token stats"
+description = "Real-time Claude Code rate limit monitor with system tray app and usage dashboard"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
@@ -19,6 +19,8 @@ classifiers = [
     "Environment :: X11 Applications",
     "Environment :: MacOS X",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Utilities",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -33,10 +35,13 @@ dependencies = [
     "Pillow>=10.0",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
 [project.scripts]
-claude-usage = "claude_usage_monitor.app:main"
-claude-usage-monitor = "claude_usage_monitor.app:main"
-claude-usage-tray = "claude_usage_monitor.app:main"
+claude-usage = "claude_usage_monitor.__main__:_entry"
+claude-usage-monitor = "claude_usage_monitor.__main__:_entry"
+claude-usage-tray = "claude_usage_monitor.__main__:_entry"
 
 [project.urls]
 Homepage = "https://github.com/Bortlesboat/claude-usage-monitor"

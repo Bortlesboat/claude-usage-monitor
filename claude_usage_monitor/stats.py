@@ -187,7 +187,7 @@ class UsageSnapshot:
         return result
 
 
-def _format_tokens(n: int) -> str:
+def format_tokens(n: int) -> str:
     if n >= 1_000_000_000:
         return f"{n / 1_000_000_000:.1f}B"
     if n >= 1_000_000:
@@ -321,5 +321,17 @@ def _scan_session_files():
     return snap
 
 
-def load_stats(path=None):
-    return _scan_session_files()
+_stats_cache: dict[str, tuple[float, UsageSnapshot]] = {}
+_STATS_CACHE_TTL = 30  # seconds
+
+
+def load_stats():
+    import time
+    now = time.monotonic()
+    if "last" in _stats_cache:
+        ts, cached = _stats_cache["last"]
+        if now - ts < _STATS_CACHE_TTL:
+            return cached
+    result = _scan_session_files()
+    _stats_cache["last"] = (now, result)
+    return result

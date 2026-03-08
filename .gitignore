@@ -12,3 +12,4 @@ venv/
 *.spec
 awesome-claude-code
 tasks/
+memory/
