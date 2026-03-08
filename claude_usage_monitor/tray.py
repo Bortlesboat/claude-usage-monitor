@@ -92,6 +92,7 @@ def build_menu_items(snap: UsageSnapshot) -> list[tuple]:
 
     items.append(("---", None))
     items.append(("Open Dashboard", "dashboard"))
+    items.append(("Check for Updates", "update"))
     items.append(("Refresh", "refresh"))
     items.append(("Quit", "quit"))
 

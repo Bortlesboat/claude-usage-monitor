@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import subprocess
 import threading
 import time
 
 import pystray
 from pystray import MenuItem, Menu
 
+from . import __version__
 from .dashboard import open_dashboard
 from .stats import UsageSnapshot, _format_tokens, load_stats
 from .tray import build_menu_items, create_icon_image
+from .updater import check_update, do_update
 
 
 class ClaudeUsageApp:
@@ -36,6 +40,8 @@ class ClaudeUsageApp:
                 menu_items.append(MenuItem("Refresh", self._refresh))
             elif action == "dashboard":
                 menu_items.append(MenuItem("Open Dashboard", self._open_dashboard))
+            elif action == "update":
+                menu_items.append(MenuItem("Check for Updates", self._check_update))
             else:
                 menu_items.append(MenuItem(label, None, enabled=False))
 
@@ -64,6 +70,43 @@ class ClaudeUsageApp:
         self._refresh()
         open_dashboard()
 
+    def _check_update(self, icon=None, item=None):
+        """Check for updates and apply if available."""
+        def _run():
+            if self.icon:
+                self.icon.title = "Claude Code - Checking for updates..."
+
+            available, current, remote = check_update()
+
+            if not available:
+                if self.icon:
+                    self.icon.title = f"Claude Code v{current} - Up to date!"
+                    # Show notification
+                    self.icon.notify(
+                        f"You're on the latest version (v{current})",
+                        "Claude Usage Monitor",
+                    )
+                return
+
+            # Update available — apply it
+            if self.icon:
+                self.icon.title = f"Claude Code - Updating v{current} -> v{remote}..."
+                self.icon.notify(
+                    f"Updating v{current} -> v{remote}...",
+                    "Claude Usage Monitor",
+                )
+
+            success, message = do_update()
+
+            if self.icon:
+                self.icon.notify(message, "Claude Usage Monitor")
+                if success:
+                    self.icon.title = f"Claude Code - Updated to v{remote}! Restart to apply."
+                else:
+                    self.icon.title = f"Claude Code v{current} - Update failed"
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _quit(self, icon=None, item=None):
         """Stop the tray icon."""
         self._running = False
@@ -85,7 +128,7 @@ class ClaudeUsageApp:
         self.icon = pystray.Icon(
             name="claude-usage",
             icon=create_icon_image(self._get_icon_text()),
-            title=f"Claude Code - {self.snap.today_messages} msgs today",
+            title=f"Claude Code v{__version__} - {self.snap.today_messages} msgs today",
             menu=self._make_menu(),
         )
 
