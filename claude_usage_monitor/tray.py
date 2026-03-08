@@ -7,6 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .api_usage import LiveUsage
 from .autostart import is_autostart_enabled
 from .config import UserConfig, load_config
+from .predictions import generate_predictions
 from .stats import UsageSnapshot, _format_tokens
 
 
@@ -86,6 +87,10 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
             remaining = max(100 - w.utilization, 0)
             reset = w.resets_in_display
             items.append((f"{w.label}:  {w.utilization:.0f}% used  ({remaining:.0f}% left)  \u2022  resets in {reset}", None))
+        # Pace prediction summary
+        preds = generate_predictions(live)
+        if preds.primary:
+            items.append((preds.tray_summary, None))
         items.append(("---", None))
     elif live and live.error:
         items.append((f"{live.error}", None))

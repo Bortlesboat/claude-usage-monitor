@@ -14,8 +14,9 @@ Claude Code doesn't show you how much of your rate limit you've used or when it 
 
 - **Color-coded tray icon** — green/yellow/red based on usage level, shows current % number
 - **Live rate limits** from Anthropic's API — 5-hour and 7-day windows with reset countdowns
+- **Usage predictions** — pace indicator (well under / on track / burning fast), projected % at reset, safe hourly token budget
 - **Plan comparison** — see what your usage would look like on Pro ($20), Max 5x ($100), or Max 20x ($200)
-- **Dashboard** with gauges, stats cards, daily output chart, and plan verdict
+- **Dashboard** with gauges, predictions, stats cards, daily output chart, and plan verdict
 - **Auto-detect your plan** from Claude Code credentials (Pro, Max 5x, Max 20x)
 - **Start on Login** toggle — runs silently in the background
 - **Desktop shortcut** creation (one click)
@@ -38,6 +39,7 @@ Right-click for quick stats:
 ```
 5-Hour:  42% used  (58% left)  • resets in 2h 14m
 7-Day:   38% used  (62% left)  • resets in 4d 11h
+Pace: comfortable — 297.6K/hr budget
 ──────────────────────────────────────────
 Today:  89 msgs  • 1.2M output  • 4 sessions
 Since Mar 01:  3.8M output (12.4M total)  • 412 msgs
@@ -58,6 +60,7 @@ Quit
 Click "Open Dashboard" for a detailed breakdown:
 
 - **Rate limit gauges** — big percentage with progress bar, remaining %, reset time (with local time)
+- **Predictions** — pace status per window, projected usage at reset, time to limit warning, safe hourly budget vs current rate
 - **Session stats** — today and billing period messages, output tokens, sessions
 - **Daily output chart** — bar chart for the current billing period
 - **Plan comparison** — simulates your usage on each plan tier with progress bars and a verdict on whether your current plan is worth it

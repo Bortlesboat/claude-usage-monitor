@@ -5,14 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "claude-usage-monitor"
 version = "2.3.0"
-description = "System tray app for monitoring Claude Code usage stats"
+description = "System tray app showing real-time Claude Code usage — rate limits, reset timers, plan comparison"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
     {name = "Andrew Barnes", email = "andrew.jaguars@gmail.com"},
 ]
-keywords = ["claude", "claude-code", "usage", "monitor", "system-tray"]
+keywords = ["claude", "claude-code", "usage", "monitor", "system-tray", "rate-limit", "claude-ai", "anthropic"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Win32 (MS Windows)",
@@ -35,8 +35,10 @@ dependencies = [
 
 [project.scripts]
 claude-usage = "claude_usage_monitor.app:main"
+claude-usage-monitor = "claude_usage_monitor.app:main"
 
 [project.urls]
 Homepage = "https://github.com/Bortlesboat/claude-usage-monitor"
 Repository = "https://github.com/Bortlesboat/claude-usage-monitor"
 Issues = "https://github.com/Bortlesboat/claude-usage-monitor/issues"
+Changelog = "https://github.com/Bortlesboat/claude-usage-monitor/releases"

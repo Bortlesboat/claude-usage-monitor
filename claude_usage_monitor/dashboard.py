@@ -25,6 +25,7 @@ from .config import (
     UserConfig,
     load_config,
 )
+from .predictions import generate_predictions
 from .stats import UsageSnapshot, _format_tokens, load_stats
 
 # Refined palette
@@ -148,6 +149,13 @@ class DashboardWindow:
             tk.Label(err_frame, text=f"Could not fetch live data: {live.error}",
                      fg=COLOR_RED, bg=CARD_BG, font=("Segoe UI", 9), wraplength=460).pack(anchor="w")
 
+        # ── Predictions ──
+        preds = generate_predictions(live)
+        if preds.predictions:
+            self._divider(frame, px)
+            self._section_label(frame, "PREDICTIONS", px)
+            self._predictions_panel(frame, preds, px)
+
         self._divider(frame, px)
 
         # ── Session Stats ──
@@ -212,6 +220,60 @@ class DashboardWindow:
                  fg="#44445a", bg=COLOR_BG, font=("Segoe UI", 8)).pack(padx=px, pady=(16, 12))
 
         tk.Frame(frame, bg=COLOR_BG, height=8).pack()
+
+    def _predictions_panel(self, parent, preds, px: int):
+        """Render prediction cards for each active rate window."""
+        from .predictions import UsagePredictions
+
+        for pred in sorted(preds.predictions, key=lambda p: p.window.name):
+            card = tk.Frame(parent, bg=CARD_BG, padx=16, pady=10)
+            card.pack(fill="x", padx=px, pady=3)
+
+            # Color mapping
+            color_map = {"green": COLOR_GREEN, "yellow": COLOR_YELLOW, "red": COLOR_RED}
+            color = color_map.get(pred.pace_color, COLOR_TEXT)
+
+            # Header row: window name + pace badge
+            top = tk.Frame(card, bg=CARD_BG)
+            top.pack(fill="x")
+
+            tk.Label(top, text=pred.window.label, fg=HEADER_FG, bg=CARD_BG,
+                     font=("Segoe UI", 11, "bold")).pack(side="left")
+
+            # Pace badge
+            badge_text = pred.pace.upper()
+            tk.Label(top, text=badge_text, fg=color, bg=CARD_BG,
+                     font=("Segoe UI", 10, "bold")).pack(side="right")
+
+            # Stats row
+            stats = tk.Frame(card, bg=CARD_BG)
+            stats.pack(fill="x", pady=(6, 0))
+
+            # Projected at reset
+            proj_color = color_map.get(
+                "red" if pred.projected_at_reset >= 95 else
+                "yellow" if pred.projected_at_reset >= 70 else "green",
+                COLOR_TEXT
+            )
+            tk.Label(stats, text=f"Projected at reset: {pred.projected_at_reset:.0f}%",
+                     fg=proj_color, bg=CARD_BG, font=("Segoe UI", 9)).pack(side="left")
+
+            # Time to limit (if burning fast)
+            if pred.hours_to_limit is not None:
+                tk.Label(stats, text=f"Hits limit in {pred.hours_to_limit_display}",
+                         fg=COLOR_RED, bg=CARD_BG,
+                         font=("Segoe UI", 9, "bold")).pack(side="right")
+
+            # Budget row
+            budget_row = tk.Frame(card, bg=CARD_BG)
+            budget_row.pack(fill="x", pady=(4, 0))
+
+            tk.Label(budget_row,
+                     text=f"Safe budget: {pred.safe_budget_display}",
+                     fg=SUBTLE_TEXT, bg=CARD_BG, font=("Segoe UI", 9)).pack(side="left")
+            tk.Label(budget_row,
+                     text=f"Current rate: ~{_format_tokens(pred.current_hourly_rate)}/hr",
+                     fg=SUBTLE_TEXT, bg=CARD_BG, font=("Segoe UI", 9)).pack(side="right")
 
     def _usage_gauge(self, parent, w: UsageWindow, snap: UsageSnapshot,
                      cfg: UserConfig, px: int):
