@@ -66,20 +66,20 @@ class DashboardWindow:
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
 
-        pad = {"padx": 16, "pady": 4}
+        padx = 16
 
         if snap.error:
             tk.Label(frame, text=f"Error: {snap.error}", fg="#e07a5f", bg=COLOR_BG,
-                     font=("Segoe UI", 12)).pack(**pad, pady=20)
+                     font=("Segoe UI", 12)).pack(padx=padx, pady=20)
             return
 
         # Title
         tk.Label(frame, text="Claude Code Usage", fg=COLOR_ACCENT, bg=COLOR_BG,
-                 font=("Segoe UI", 18, "bold")).pack(**pad, pady=(16, 4))
+                 font=("Segoe UI", 18, "bold")).pack(padx=padx, pady=(16, 4))
 
         # Summary cards
         summary_frame = tk.Frame(frame, bg=COLOR_BG)
-        summary_frame.pack(fill="x", **pad, pady=(8, 4))
+        summary_frame.pack(fill="x", padx=padx, pady=(8, 4))
 
         cards = [
             ("Today", f"{snap.today_messages} msgs\n{_format_tokens(snap.today_tokens)} tokens"),
