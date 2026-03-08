@@ -236,14 +236,14 @@ def _scan_session_files() -> UsageSnapshot:
         if not project_dir.is_dir():
             continue
         for f in project_dir.glob("*.jsonl"):
-            try:
-                mtime = datetime.fromtimestamp(f.stat().st_mtime)
-            except OSError:
-                continue
-
-            day_str = mtime.strftime("%Y-%m-%d")
             session_id = f.stem
             session_msg_count = 0
+
+            # Fall back to file mtime if no per-message timestamps
+            try:
+                fallback_mtime = datetime.fromtimestamp(f.stat().st_mtime)
+            except OSError:
+                fallback_mtime = datetime.now()
 
             try:
                 with open(f, "r", encoding="utf-8", errors="ignore") as fh:
@@ -253,6 +253,19 @@ def _scan_session_files() -> UsageSnapshot:
                             msg = d.get("message", {})
                             if not isinstance(msg, dict) or "usage" not in msg:
                                 continue
+
+                            # Use per-message timestamp when available
+                            ts_str = d.get("timestamp")
+                            if ts_str:
+                                try:
+                                    msg_time = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).astimezone()
+                                except (ValueError, TypeError):
+                                    msg_time = fallback_mtime
+                            else:
+                                msg_time = fallback_mtime
+
+                            day_str = msg_time.strftime("%Y-%m-%d")
+                            hour = msg_time.hour
 
                             session_msg_count += 1
                             u = msg["usage"]
@@ -271,7 +284,7 @@ def _scan_session_files() -> UsageSnapshot:
                             dd["cache_create"] += cc
                             dd["model_output"][model] += out
                             dd["model_total"][model] += inp + out + cr + cc
-                            dd["hours"][mtime.hour] += 1
+                            dd["hours"][hour] += 1
 
                             # Aggregate model stats
                             if model not in model_agg:
@@ -281,6 +294,9 @@ def _scan_session_files() -> UsageSnapshot:
                             ms.output_tokens += out
                             ms.cache_read += cr
                             ms.cache_creation += cc
+
+                            if first_date is None or day_str < first_date:
+                                first_date = day_str
                         except (json.JSONDecodeError, KeyError):
                             pass
             except OSError:
@@ -290,8 +306,6 @@ def _scan_session_files() -> UsageSnapshot:
                 total_messages += session_msg_count
                 total_sessions += 1
                 longest_msgs = max(longest_msgs, session_msg_count)
-                if first_date is None or day_str < first_date:
-                    first_date = day_str
 
     # Build snapshot
     snap = UsageSnapshot(

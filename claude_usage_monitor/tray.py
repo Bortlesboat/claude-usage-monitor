@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from PIL import Image, ImageDraw, ImageFont
 
+from . import __version__
 from .api_usage import LiveUsage
 from .autostart import is_autostart_enabled
 from .config import UserConfig, load_config
@@ -119,6 +120,8 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
     items.append(("Check for Updates", "update"))
     items.append(("GitHub / Help", "github"))
     items.append(("Refresh", "refresh"))
+    items.append(("---", None))
+    items.append((f"v{__version__}", None))
     items.append(("Quit", "quit"))
 
     return items

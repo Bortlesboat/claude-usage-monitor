@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time as _time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -96,8 +97,6 @@ WINDOW_CONFIG = {
     "seven_day_cowork": "7-Day Cowork",
 }
 
-
-import time as _time
 
 # Simple cache to avoid hammering the API
 _cache: dict[str, tuple[float, LiveUsage]] = {}

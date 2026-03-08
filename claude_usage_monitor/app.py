@@ -74,7 +74,9 @@ class ClaudeUsageApp:
                 if w.utilization == 0 and "sonnet" in w.name.lower():
                     continue
                 parts.append(f"{w.label}: {w.utilization:.0f}%")
-            return " | ".join(parts)
+            from datetime import datetime
+            updated = datetime.now().strftime("%I:%M %p").lstrip("0")
+            return " | ".join(parts) + f" (updated {updated})"
         return f"Claude Usage Monitor v{__version__}"
 
     def _update_icon(self):
@@ -190,8 +192,39 @@ class ClaudeUsageApp:
         self.icon.run()
 
 
+def _check_single_instance() -> bool:
+    """Ensure only one instance is running. Returns True if this is the only one."""
+    lock_path = get_claude_dir() / "usage-monitor.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        # Write our PID. Check if existing PID is still alive.
+        if lock_path.exists():
+            try:
+                old_pid = int(lock_path.read_text().strip())
+                # Check if that process is still running
+                if sys.platform == "win32":
+                    import ctypes
+                    kernel32 = ctypes.windll.kernel32
+                    handle = kernel32.OpenProcess(0x1000, False, old_pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+                    if handle:
+                        kernel32.CloseHandle(handle)
+                        return False  # Another instance is running
+                else:
+                    os.kill(old_pid, 0)  # Signal 0 = check existence
+                    return False  # Process exists
+            except (ValueError, OSError, ProcessLookupError):
+                pass  # Stale lock file
+        lock_path.write_text(str(os.getpid()))
+        return True
+    except OSError:
+        return True  # If we can't check, just run
+
+
 def main():
     """Entry point."""
+    if not _check_single_instance():
+        print("Claude Usage Monitor is already running.", file=sys.stderr)
+        sys.exit(0)
     app = ClaudeUsageApp()
     app.run()
 

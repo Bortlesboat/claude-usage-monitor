@@ -72,6 +72,10 @@ class UserConfig:
     billing_day: int = 1  # Day of month billing resets (1-28)
     custom_output_limit: int | None = None  # Override plan default
 
+    def __post_init__(self):
+        # Clamp billing_day to valid range
+        self.billing_day = max(1, min(self.billing_day, 28))
+
     @property
     def plan_info(self) -> dict:
         return PLAN_LIMITS.get(self.plan, PLAN_LIMITS["pro"])

@@ -45,14 +45,6 @@ def _pct_color(pct: float) -> str:
     return COLOR_RED
 
 
-def _pct_icon(pct: float) -> str:
-    if pct < 50:
-        return ""
-    if pct < 80:
-        return ""
-    return ""
-
-
 class DashboardWindow:
     """Dashboard focused on live usage windows and plan allowance."""
 
@@ -80,11 +72,24 @@ class DashboardWindow:
         self.root.mainloop()
 
     def _refresh(self):
-        """Reload data and rebuild the UI."""
-        self.snap = load_stats()
-        self.config = load_config()
-        self.live = fetch_live_usage()
-        # Tear down old widgets
+        """Reload data in background, then rebuild UI on main thread."""
+        import threading
+
+        def _fetch():
+            snap = load_stats()
+            config = load_config()
+            live = fetch_live_usage()
+            # Schedule UI rebuild on main thread
+            if self.root:
+                self.root.after(0, lambda: self._apply_refresh(snap, config, live))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _apply_refresh(self, snap, config, live):
+        """Apply fetched data and rebuild UI (must run on main thread)."""
+        self.snap = snap
+        self.config = config
+        self.live = live
         if self._canvas:
             self._canvas.destroy()
         if self._scrollbar:
