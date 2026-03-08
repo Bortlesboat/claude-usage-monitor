@@ -34,6 +34,7 @@ class ClaudeUsageApp:
         self.icon: pystray.Icon | None = None
         self._running = True
         self._first_launch = not (get_claude_dir() / "usage-monitor-config.json").exists()
+        self._notified_thresholds: set[str] = set()  # Track which alerts have fired
 
     def _make_menu(self) -> Menu:
         items = build_menu_items(self.snap, self.config, self.live)
@@ -47,7 +48,7 @@ class ClaudeUsageApp:
             elif action == "refresh":
                 menu_items.append(MenuItem("Refresh", self._refresh))
             elif action == "dashboard":
-                menu_items.append(MenuItem("Open Dashboard", self._open_dashboard))
+                menu_items.append(MenuItem("Open Dashboard", self._open_dashboard, default=True))
             elif action == "update":
                 menu_items.append(MenuItem("Check for Updates", self._check_update))
             elif action == "toggle_autostart":
@@ -97,6 +98,23 @@ class ClaudeUsageApp:
         except Exception:
             pass
         self._update_icon()
+        self._check_thresholds()
+
+    def _check_thresholds(self):
+        """Send notifications when usage crosses 80% or 90%."""
+        if not self.icon or not self.live or self.live.error or not self.live.windows:
+            return
+        for w in self.live.windows:
+            for threshold in (80, 90):
+                key = f"{w.name}_{threshold}"
+                if w.utilization >= threshold and key not in self._notified_thresholds:
+                    self._notified_thresholds.add(key)
+                    self.icon.notify(
+                        f"{w.label} at {w.utilization:.0f}% — resets in {w.resets_in_display}",
+                        "Usage Warning",
+                    )
+                elif w.utilization < threshold and key in self._notified_thresholds:
+                    self._notified_thresholds.discard(key)  # Reset after window resets
 
     def _open_dashboard(self, icon=None, item=None):
         self._refresh()

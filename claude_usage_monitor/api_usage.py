@@ -108,12 +108,13 @@ def fetch_live_usage() -> LiveUsage:
     now = _time.monotonic()
     if "last" in _cache:
         ts, cached = _cache["last"]
-        if now - ts < _CACHE_TTL:
+        ttl = _CACHE_TTL if not cached.error else _CACHE_TTL // 2
+        if now - ts < ttl:
             return cached
 
     result = _fetch_live_usage_uncached()
-    if not result.error:
-        _cache["last"] = (now, result)
+    # Cache successes for full TTL, errors for half (avoids hammering during outages)
+    _cache["last"] = (now, result)
     return result
 
 
@@ -153,8 +154,8 @@ def _fetch_live_usage_uncached() -> LiveUsage:
             return LiveUsage(windows=[], error=msg)
         except (urllib.error.URLError, TimeoutError, OSError):
             return LiveUsage(windows=[], error="Can't reach Anthropic — local stats still work")
-        except Exception as e:
-            return LiveUsage(windows=[], error=str(e) or "Unknown error fetching usage")
+        except Exception:
+            return LiveUsage(windows=[], error="Unexpected error fetching usage data")
 
     windows = []
     for key, label in WINDOW_CONFIG.items():

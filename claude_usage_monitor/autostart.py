@@ -83,7 +83,7 @@ def _desktop_path() -> Path:
 
 def _vbs_launch_script() -> str:
     """Return VBScript content that launches pythonw -m claude_usage_monitor silently."""
-    pythonw = _get_pythonw().replace("\\", "\\\\")
+    pythonw = _get_pythonw()  # VBS doesn't escape backslashes
     return (
         'Set WshShell = CreateObject("WScript.Shell")\n'
         f'WshShell.Run """{pythonw}"" -m {MODULE_NAME}", 0, False\n'

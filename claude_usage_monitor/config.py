@@ -82,7 +82,7 @@ class UserConfig:
 
     @property
     def output_token_limit(self) -> int:
-        if self.custom_output_limit:
+        if self.custom_output_limit is not None:
             return self.custom_output_limit
         return self.plan_info["output_tokens"]
 
