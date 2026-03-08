@@ -30,12 +30,21 @@ def get_remote_version() -> str | None:
     return None
 
 
+def _parse_version(v: str) -> tuple[int, ...]:
+    """Parse version string to comparable tuple."""
+    try:
+        return tuple(int(x) for x in v.strip().split("."))
+    except (ValueError, AttributeError):
+        return (0,)
+
+
 def check_update() -> tuple[bool, str, str]:
     """Check if an update is available. Returns (available, current, remote)."""
     remote = get_remote_version()
     if remote is None:
         return False, __version__, "unknown"
-    return remote != __version__, __version__, remote
+    available = _parse_version(remote) > _parse_version(__version__)
+    return available, __version__, remote
 
 
 def do_update() -> tuple[bool, str]:

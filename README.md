@@ -1,74 +1,82 @@
 # Claude Code Usage Monitor
 
-A lightweight system tray app that displays your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) usage statistics at a glance.
+A system tray app that shows your **real-time Claude Code usage** — rate limits, reset timers, plan comparison, and token stats — all from a single icon.
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)
 
+## Why?
+
+Claude Code doesn't show you how much of your rate limit you've used or when it resets. This app lives in your system tray and gives you that info at a glance — so you never get surprised by a rate limit wall.
+
 ## Features
 
-- **System tray icon** showing today's message count
-- **Right-click menu** with quick stats (today, this week, all time)
-- **Dashboard window** with visual charts:
-  - Token usage by model (bar chart)
-  - Daily message activity (last 14 days)
-  - Hourly activity distribution
-  - Session and token totals
-- **Auto-refresh** every 30 seconds
-- Reads directly from Claude Code's local `~/.claude/stats-cache.json` — no API keys needed
+- **Color-coded tray icon** — green/yellow/red based on usage level, shows current % number
+- **Live rate limits** from Anthropic's API — 5-hour and 7-day windows with reset countdowns
+- **Plan comparison** — see what your usage would look like on Pro ($20), Max 5x ($100), or Max 20x ($200)
+- **Dashboard** with gauges, stats cards, daily output chart, and plan verdict
+- **Auto-detect your plan** from Claude Code credentials (Pro, Max 5x, Max 20x)
+- **Start on Login** toggle — runs silently in the background
+- **Desktop shortcut** creation (one click)
+- **Self-update** — check for updates and install from the tray menu
+- **Cross-platform** — Windows, macOS, Linux
+- **No API key required** — uses your existing Claude Code OAuth session
+- **Auto-refresh** every 60 seconds
 
-## Screenshots
+## What You See
 
-**System Tray Menu:**
+### System Tray
+
+The icon shows your current usage percentage with color coding:
+- **Green** (< 50%) — plenty of headroom
+- **Yellow** (50-80%) — moderate usage
+- **Red** (> 80%) — approaching limit
+
+Right-click for quick stats:
+
 ```
-Claude Code Usage Monitor
-─────────────────────────
-Today: 142 messages, 3 sessions
-Today tokens: 45.2K
-─────────────────────────
-This week: 1,204 messages, 2.1M tokens
-─────────────────────────
-All time: 66 sessions, 21,740 messages
-Total tokens: 551.2M
-Days active: 19
-Avg daily: 1,144 messages
-─────────────────────────
-Models:
-  Opus 4.6: 285.3M tokens
-  Opus 4.5: 242.9M tokens
-  Sonnet 4.5: 24.8M tokens
-─────────────────────────
+5-Hour:  42% used  (58% left)  • resets in 2h 14m
+7-Day:   38% used  (62% left)  • resets in 4d 11h
+──────────────────────────────────────────
+Today:  89 msgs  • 1.2M output  • 4 sessions
+Since Mar 01:  3.8M output (12.4M total)  • 412 msgs
+──────────────────────────────────────────
 Open Dashboard
+──────────────────────────────────────────
+Start on Login  (off)
+Create Desktop Shortcut
+──────────────────────────────────────────
+Check for Updates
+GitHub / Help
 Refresh
 Quit
 ```
 
+### Dashboard
+
+Click "Open Dashboard" for a detailed breakdown:
+
+- **Rate limit gauges** — big percentage with progress bar, remaining %, reset time (with local time)
+- **Session stats** — today and billing period messages, output tokens, sessions
+- **Daily output chart** — bar chart for the current billing period
+- **Plan comparison** — simulates your usage on each plan tier with progress bars and a verdict on whether your current plan is worth it
+- **All-time stats** — sessions, messages, days active, peak hour
+
 ## Quick Start
 
-### Option 1: pipx (recommended)
-
-[pipx](https://pipx.pypa.io/) installs Python CLI tools in isolated environments and handles PATH automatically.
-
-```bash
-# Install pipx if you don't have it
-pip install pipx
-pipx ensurepath
-
-# Install claude-usage-monitor
-pipx install git+https://github.com/Bortlesboat/claude-usage-monitor.git
-
-# Run it
-claude-usage
-```
-
-### Option 2: pip + python module
+### Option 1: pip (simplest)
 
 ```bash
 pip install git+https://github.com/Bortlesboat/claude-usage-monitor.git
-
-# Run as a module (works even if scripts aren't on PATH)
 python -m claude_usage_monitor
+```
+
+### Option 2: pipx (isolated environment)
+
+```bash
+pipx install git+https://github.com/Bortlesboat/claude-usage-monitor.git
+claude-usage
 ```
 
 ### Option 3: Clone and run
@@ -80,25 +88,45 @@ pip install .
 python -m claude_usage_monitor
 ```
 
-## Usage
+### First Launch
 
-The icon appears in your system tray (bottom-right on Windows, menu bar on macOS).
+1. Make sure you've signed in to [Claude Code](https://docs.anthropic.com/en/docs/claude-code) at least once (`claude` in terminal)
+2. Run the monitor — the icon appears in your system tray
+3. Right-click the icon to see your stats
+4. Use "Start on Login" to run it automatically at startup
 
-- **Right-click** the icon to see quick stats
-- **Click "Open Dashboard"** for the full visual breakdown with charts
-- **Click "Quit"** to close
+## How It Works
 
-The app auto-refreshes every 30 seconds.
+The app uses two data sources:
+
+| Source | What it provides |
+|--------|-----------------|
+| **Anthropic OAuth API** | Real-time rate limit windows (5-hour, 7-day), utilization %, reset times |
+| **Session JSONL files** (`~/.claude/projects/`) | Token counts by model, daily activity, session history |
+
+Your OAuth token is read from `~/.claude/.credentials.json` (created when you sign in to Claude Code). No API keys or extra configuration needed.
+
+### Configuration
+
+On first run, the app auto-detects your plan from Claude Code's credentials. Config is saved at `~/.claude/usage-monitor-config.json`:
+
+```json
+{
+  "plan": "max_20x",
+  "billing_day": 1
+}
+```
+
+- `plan`: `free`, `pro`, `max_5x`, or `max_20x`
+- `billing_day`: day of month your billing cycle resets (1-28)
 
 ## Requirements
 
 - Python 3.10+
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed (reads `~/.claude/stats-cache.json`)
-- Works on **Windows**, **macOS**, and **Linux** (requires a system tray / notification area)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and signed in
+- Works on **Windows**, **macOS**, and **Linux**
 
 ### Linux dependencies
-
-On Linux, you may need:
 
 ```bash
 # Ubuntu/Debian
@@ -108,34 +136,35 @@ sudo apt install python3-tk libappindicator3-1
 sudo dnf install python3-tkinter libappindicator-gtk3
 ```
 
-## How it works
-
-Claude Code stores usage statistics in `~/.claude/stats-cache.json`. This app reads that file and displays the data in a system tray icon and optional dashboard window. No network requests, no API keys — everything is local.
-
-### Data shown
-
-| Metric | Source |
-|--------|--------|
-| Messages per day/week/all-time | `dailyActivity` |
-| Token usage by model | `modelUsage` |
-| Daily token breakdown | `dailyModelTokens` |
-| Session counts | `totalSessions` |
-| Peak usage hours | `hourCounts` |
-| Longest session | `longestSession` |
-
 ## Troubleshooting
 
 ### `claude-usage` command not found (Windows)
 
 Windows Store Python installs scripts to a directory not on PATH. Use `python -m claude_usage_monitor` instead, or install with `pipx` which handles PATH automatically.
 
+### "Sign in to Claude Code first"
+
+Run `claude` in your terminal and complete the sign-in flow. The monitor needs the OAuth token created during sign-in.
+
+### "Session expired"
+
+Your Claude Code session has expired. Run `claude` in terminal to re-authenticate.
+
 ### No data showing
 
-Make sure you've used Claude Code at least once — it creates `~/.claude/stats-cache.json` after your first session.
+Make sure you've used Claude Code at least once — session files are created in `~/.claude/projects/` after your first conversation.
 
 ### Tray icon not visible (Linux)
 
 You may need a system tray / app indicator extension. On GNOME, install the [AppIndicator extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+
+## Updating
+
+Click "Check for Updates" in the tray menu, or manually:
+
+```bash
+pip install --upgrade git+https://github.com/Bortlesboat/claude-usage-monitor.git
+```
 
 ## License
 
