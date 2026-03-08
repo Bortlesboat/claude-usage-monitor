@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [
-    {name = "Andrew Barnes", email = "andrew.jaguars@gmail.com"},
+    {name = "Bortlesboat", email = "bortstheboat@gmail.com"},
 ]
 keywords = ["claude", "claude-code", "usage", "monitor", "system-tray", "rate-limit", "claude-ai", "anthropic"]
 classifiers = [
