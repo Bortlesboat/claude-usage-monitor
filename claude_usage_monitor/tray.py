@@ -39,7 +39,7 @@ def create_icon_image(text: str = "CC", color: str = "#d4a574") -> Image.Image:
 
 def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
                      live: LiveUsage | None = None) -> list[tuple]:
-    """Build menu items from usage snapshot. Returns list of (label, callback_or_None)."""
+    """Build menu items from usage snapshot."""
     cfg = config or load_config()
     items = []
 
@@ -49,25 +49,23 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
         items.append(("Quit", "quit"))
         return items
 
-    # ── Live API Usage (primary focus) ──
+    # ── Live rate limits ──
     if live and not live.error and live.windows:
         for w in sorted(live.windows, key=lambda w: w.name):
-            pct = w.utilization
-            reset = w.resets_in_display
-            bar = _usage_bar(pct)
-            items.append((f"{w.label}: {bar} {pct:.0f}%  (resets {reset})", None))
-        items.append(("---", None))
-    elif live and live.error:
-        items.append((f"API: {live.error[:60]}", None))
+            if w.utilization == 0 and "sonnet" in w.name.lower():
+                continue
+            remaining = max(100 - w.utilization, 0)
+            items.append((f"{w.label}:  {w.utilization:.0f}% used  ({remaining:.0f}% left)  \u2022  resets {w.resets_in_display}", None))
         items.append(("---", None))
 
-    # Today
-    items.append((f"Today: {snap.today_messages} msgs, {_format_tokens(snap.today_output_tokens)} output", None))
+    # ── Today ──
+    items.append((f"Today:  {snap.today_messages:,} msgs  \u2022  {_format_tokens(snap.today_output_tokens)} output  \u2022  {snap.today_sessions} sessions", None))
     items.append(("---", None))
 
-    # Period stats
-    used_output = snap.period_output_tokens(cfg)
-    items.append((f"Period: {_format_tokens(used_output)} output, {snap.period_messages(cfg):,} msgs", None))
+    # ── Period ──
+    used = snap.period_output_tokens(cfg)
+    total = snap.period_total_tokens(cfg)
+    items.append((f"Period:  {_format_tokens(used)} output  ({_format_tokens(total)} total)  \u2022  {snap.period_messages(cfg):,} msgs", None))
     items.append(("---", None))
 
     items.append(("Open Dashboard", "dashboard"))
@@ -76,11 +74,3 @@ def build_menu_items(snap: UsageSnapshot, config: UserConfig | None = None,
     items.append(("Quit", "quit"))
 
     return items
-
-
-def _usage_bar(pct: float, width: int = 10) -> str:
-    """Create a text-based usage bar like [████░░░░░░]."""
-    filled = int(pct / 100 * width)
-    filled = min(filled, width)
-    empty = width - filled
-    return f"[{'█' * filled}{'░' * empty}]"

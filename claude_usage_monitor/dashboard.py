@@ -16,7 +16,6 @@ from .config import (
     COLOR_ACCENT,
     COLOR_BAR_BG,
     COLOR_BAR_FILL,
-    COLOR_BAR_HIGH,
     COLOR_BG,
     COLOR_GREEN,
     COLOR_RED,
@@ -28,13 +27,29 @@ from .config import (
 )
 from .stats import UsageSnapshot, _format_tokens, load_stats
 
+# Refined palette
+CARD_BG = "#242440"
+GAUGE_BG = "#1e1e36"
+BORDER_COLOR = "#3a3a5c"
+HEADER_FG = "#f0f0f0"
+SUBTLE_TEXT = "#777799"
+DIVIDER = "#2d2d4a"
+
 
 def _pct_color(pct: float) -> str:
-    if pct < 60:
+    if pct < 50:
         return COLOR_GREEN
-    if pct < 85:
+    if pct < 80:
         return COLOR_YELLOW
     return COLOR_RED
+
+
+def _pct_icon(pct: float) -> str:
+    if pct < 50:
+        return ""
+    if pct < 80:
+        return ""
+    return ""
 
 
 class DashboardWindow:
@@ -51,8 +66,9 @@ class DashboardWindow:
         self.root = tk.Tk()
         self.root.title("Claude Code Usage Monitor")
         self.root.configure(bg=COLOR_BG)
-        self.root.geometry("540x720")
+        self.root.geometry("520x740")
         self.root.resizable(True, True)
+        self.root.minsize(400, 500)
         try:
             self.root.iconbitmap(default="")
         except Exception:
@@ -67,7 +83,7 @@ class DashboardWindow:
         live = self.live
 
         # Scrollable frame
-        canvas = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0)
+        canvas = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0, bd=0)
         scrollbar = ttk.Scrollbar(root, orient="vertical", command=canvas.yview)
         frame = tk.Frame(canvas, bg=COLOR_BG)
         frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
@@ -77,160 +93,214 @@ class DashboardWindow:
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
 
-        padx = 16
+        px = 18  # Consistent horizontal padding
 
-        # ── Title ──
-        tk.Label(frame, text="Claude Code Usage", fg=COLOR_ACCENT, bg=COLOR_BG,
-                 font=("Segoe UI", 18, "bold")).pack(padx=padx, pady=(16, 2))
-        tk.Label(frame, text=f"Plan: {cfg.plan_label}", fg=COLOR_SECONDARY, bg=COLOR_BG,
-                 font=("Segoe UI", 10)).pack(padx=padx, pady=(0, 8))
+        # ── Header ──
+        header_frame = tk.Frame(frame, bg=COLOR_BG)
+        header_frame.pack(fill="x", padx=px, pady=(20, 0))
+        tk.Label(header_frame, text="Claude Code", fg=HEADER_FG, bg=COLOR_BG,
+                 font=("Segoe UI", 20, "bold"), anchor="w").pack(side="left")
+        tk.Label(header_frame, text=cfg.plan_label, fg=COLOR_ACCENT, bg=COLOR_BG,
+                 font=("Segoe UI", 11), anchor="e").pack(side="right")
 
-        # ── Live Usage Windows (PRIMARY SECTION) ──
+        self._divider(frame, px)
+
+        # ── Live Usage Windows ──
         if live and not live.error and live.windows:
-            self._section_label(frame, "Usage Limits (Live)")
+            self._section_label(frame, "RATE LIMITS", px)
 
             for w in sorted(live.windows, key=lambda w: w.name):
-                self._usage_gauge(frame, w)
+                if w.utilization == 0 and "sonnet" in w.name.lower():
+                    continue  # Skip empty Sonnet window to reduce clutter
+                self._usage_gauge(frame, w, snap, cfg, px)
+
         elif live and live.error:
-            self._section_label(frame, "Usage Limits")
-            tk.Label(frame, text=f"Could not fetch: {live.error}", fg=COLOR_RED, bg=COLOR_BG,
-                     font=("Segoe UI", 10)).pack(padx=20, pady=4)
+            self._section_label(frame, "RATE LIMITS", px)
+            err_frame = tk.Frame(frame, bg=CARD_BG, padx=14, pady=10)
+            err_frame.pack(fill="x", padx=px, pady=4)
+            tk.Label(err_frame, text=f"Could not fetch live data: {live.error}",
+                     fg=COLOR_RED, bg=CARD_BG, font=("Segoe UI", 9), wraplength=460).pack(anchor="w")
 
-        # ── Today ──
-        self._section_label(frame, "Today")
-        today_frame = tk.Frame(frame, bg=COLOR_BG)
-        today_frame.pack(fill="x", padx=padx, pady=(4, 4))
+        self._divider(frame, px)
 
-        cards = [
-            ("Messages", f"{snap.today_messages:,}"),
-            ("Output tokens", _format_tokens(snap.today_output_tokens)),
-            ("Sessions", str(snap.today_sessions)),
-        ]
-        for i, (title, value) in enumerate(cards):
-            card = tk.Frame(today_frame, bg="#2d2d44", padx=12, pady=8)
-            card.grid(row=0, column=i, padx=4, sticky="nsew")
-            today_frame.columnconfigure(i, weight=1)
-            tk.Label(card, text=title, fg=COLOR_SECONDARY, bg="#2d2d44",
-                     font=("Segoe UI", 9)).pack()
-            tk.Label(card, text=value, fg=COLOR_TEXT, bg="#2d2d44",
-                     font=("Segoe UI", 13, "bold")).pack()
+        # ── Session Stats ──
+        self._section_label(frame, "SESSION STATS", px)
 
-        # ── Period Summary ──
-        self._section_label(frame, "This Billing Period")
-        period_frame = tk.Frame(frame, bg=COLOR_BG)
-        period_frame.pack(fill="x", padx=padx, pady=(4, 4))
+        # Today row
+        self._stat_cards(frame, px, [
+            ("Today", f"{snap.today_messages:,}", "messages"),
+            ("Output", _format_tokens(snap.today_output_tokens), "tokens today"),
+            ("Sessions", str(snap.today_sessions), "today"),
+        ])
 
+        # Period row
         used_output = snap.period_output_tokens(cfg)
-        period_cards = [
-            ("Output used", _format_tokens(used_output)),
-            ("Messages", f"{snap.period_messages(cfg):,}"),
-            ("Sessions", str(snap.period_sessions(cfg))),
-        ]
-        for i, (title, value) in enumerate(period_cards):
-            card = tk.Frame(period_frame, bg="#2d2d44", padx=12, pady=8)
-            card.grid(row=0, column=i, padx=4, sticky="nsew")
-            period_frame.columnconfigure(i, weight=1)
-            tk.Label(card, text=title, fg=COLOR_SECONDARY, bg="#2d2d44",
-                     font=("Segoe UI", 9)).pack()
-            tk.Label(card, text=value, fg=COLOR_TEXT, bg="#2d2d44",
-                     font=("Segoe UI", 13, "bold")).pack()
+        used_total = snap.period_total_tokens(cfg)
+        self._stat_cards(frame, px, [
+            ("This Period", f"{snap.period_messages(cfg):,}", "messages"),
+            ("Output", _format_tokens(used_output), f"tokens ({_format_tokens(used_total)} total)"),
+            ("Sessions", str(snap.period_sessions(cfg)), f"since {cfg.current_period_start.strftime('%b %d')}"),
+        ])
 
-        # ── Daily Output Chart ──
-        self._section_label(frame, "Daily Output Tokens (This Period)")
-        self._daily_chart(frame, snap, cfg)
+        self._divider(frame, px)
+
+        # ── Daily Chart ──
+        self._section_label(frame, "DAILY OUTPUT", px)
+        self._daily_chart(frame, snap, cfg, px)
+
+        self._divider(frame, px)
 
         # ── All Time ──
-        self._section_label(frame, "All Time")
-        stats = [
-            f"Sessions: {snap.total_sessions}  |  Messages: {snap.total_messages:,}  |  Days active: {snap.days_active}",
-            f"Total output: {_format_tokens(snap.total_output_tokens)}  |  Total all: {_format_tokens(snap.total_tokens)}",
+        self._section_label(frame, "ALL TIME", px)
+        all_time_frame = tk.Frame(frame, bg=CARD_BG, padx=14, pady=10)
+        all_time_frame.pack(fill="x", padx=px, pady=4)
+
+        rows = [
+            ("Sessions", str(snap.total_sessions)),
+            ("Messages", f"{snap.total_messages:,}"),
+            ("Days active", str(snap.days_active)),
+            ("Output tokens", _format_tokens(snap.total_output_tokens)),
+            ("Total tokens", _format_tokens(snap.total_tokens)),
         ]
         if snap.peak_hour is not None:
-            stats.append(f"Peak hour: {snap.peak_hour:02d}:00")
+            rows.append(("Peak hour", f"{snap.peak_hour:02d}:00"))
+        if snap.first_session_date:
+            rows.append(("First session", snap.first_session_date[:10]))
 
-        for line in stats:
-            tk.Label(frame, text=line, fg=COLOR_SECONDARY, bg=COLOR_BG,
-                     font=("Segoe UI", 10), anchor="w").pack(fill="x", padx=20, pady=1)
+        for i, (label, value) in enumerate(rows):
+            row = tk.Frame(all_time_frame, bg=CARD_BG)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=label, fg=SUBTLE_TEXT, bg=CARD_BG,
+                     font=("Segoe UI", 9), anchor="w", width=14).pack(side="left")
+            tk.Label(row, text=value, fg=COLOR_TEXT, bg=CARD_BG,
+                     font=("Segoe UI", 9, "bold"), anchor="e").pack(side="right")
 
-        # Footer
-        tk.Label(frame, text=f"Config: ~/.claude/usage-monitor-config.json",
-                 fg="#555577", bg=COLOR_BG, font=("Segoe UI", 8)).pack(padx=padx, pady=(16, 8))
-        tk.Frame(frame, bg=COLOR_BG, height=20).pack()
+        # ── Footer ──
+        tk.Label(frame, text="Data: ~/.claude/ | Config: ~/.claude/usage-monitor-config.json",
+                 fg="#44445a", bg=COLOR_BG, font=("Segoe UI", 8)).pack(padx=px, pady=(16, 12))
 
-    def _usage_gauge(self, parent, w: UsageWindow):
-        """Draw a usage gauge for a single rate limit window."""
+        tk.Frame(frame, bg=COLOR_BG, height=8).pack()
+
+    def _usage_gauge(self, parent, w: UsageWindow, snap: UsageSnapshot,
+                     cfg: UserConfig, px: int):
+        """Draw a polished usage gauge for a rate limit window."""
         pct = w.utilization
         color = _pct_color(pct)
+        remaining_pct = max(100 - pct, 0)
 
-        gauge = tk.Frame(parent, bg="#2d2d44", padx=16, pady=10)
-        gauge.pack(fill="x", padx=20, pady=4)
+        gauge = tk.Frame(parent, bg=CARD_BG, padx=16, pady=12)
+        gauge.pack(fill="x", padx=px, pady=3)
 
-        # Header row: label + percentage
-        header = tk.Frame(gauge, bg="#2d2d44")
-        header.pack(fill="x")
-        tk.Label(header, text=w.label, fg=COLOR_TEXT, bg="#2d2d44",
-                 font=("Segoe UI", 12, "bold"), anchor="w").pack(side="left")
-        tk.Label(header, text=f"{pct:.0f}%", fg=color, bg="#2d2d44",
-                 font=("Segoe UI", 20, "bold"), anchor="e").pack(side="right")
+        # Top row: window name + big percentage
+        top = tk.Frame(gauge, bg=CARD_BG)
+        top.pack(fill="x")
 
-        # Progress bar
-        bar_outer = tk.Frame(gauge, bg=COLOR_BAR_BG, height=16)
-        bar_outer.pack(fill="x", pady=(6, 4))
+        left_top = tk.Frame(top, bg=CARD_BG)
+        left_top.pack(side="left", anchor="w")
+        tk.Label(left_top, text=w.label, fg=HEADER_FG, bg=CARD_BG,
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w")
+
+        right_top = tk.Frame(top, bg=CARD_BG)
+        right_top.pack(side="right", anchor="e")
+        tk.Label(right_top, text=f"{pct:.0f}%", fg=color, bg=CARD_BG,
+                 font=("Segoe UI", 24, "bold")).pack(anchor="e")
+        tk.Label(right_top, text="used", fg=SUBTLE_TEXT, bg=CARD_BG,
+                 font=("Segoe UI", 8)).pack(anchor="e")
+
+        # Progress bar with rounded feel
+        bar_outer = tk.Frame(gauge, bg=COLOR_BAR_BG, height=12)
+        bar_outer.pack(fill="x", pady=(8, 6))
         bar_outer.pack_propagate(False)
         fill_w = min(pct / 100, 1.0)
-        bar_inner = tk.Frame(bar_outer, bg=color)
-        bar_inner.place(x=0, y=0, relheight=1.0, relwidth=fill_w)
+        if fill_w > 0:
+            bar_inner = tk.Frame(bar_outer, bg=color)
+            bar_inner.place(x=0, y=0, relheight=1.0, relwidth=fill_w)
 
-        # Reset info
+        # Bottom row: remaining + reset time
+        bottom = tk.Frame(gauge, bg=CARD_BG)
+        bottom.pack(fill="x")
+
+        tk.Label(bottom, text=f"{remaining_pct:.0f}% remaining", fg=SUBTLE_TEXT, bg=CARD_BG,
+                 font=("Segoe UI", 9), anchor="w").pack(side="left")
+
         reset_text = f"Resets in {w.resets_in_display}"
         if w.resets_at:
             local_reset = w.resets_at.astimezone()
-            reset_text += f"  ({local_reset.strftime('%b %d, %I:%M %p')})"
-        tk.Label(gauge, text=reset_text, fg=COLOR_SECONDARY, bg="#2d2d44",
-                 font=("Segoe UI", 9), anchor="w").pack(anchor="w")
+            reset_text += f"  \u2022  {local_reset.strftime('%b %d, %I:%M %p').lstrip('0')}"
+        tk.Label(bottom, text=reset_text, fg=SUBTLE_TEXT, bg=CARD_BG,
+                 font=("Segoe UI", 9), anchor="e").pack(side="right")
 
-    def _section_label(self, parent, text):
-        tk.Label(parent, text=text, fg=COLOR_ACCENT, bg=COLOR_BG,
-                 font=("Segoe UI", 12, "bold"), anchor="w").pack(fill="x", padx=16, pady=(12, 4))
+    def _stat_cards(self, parent, px: int, cards: list[tuple[str, str, str]]):
+        """Render a row of stat cards. Each card is (title, value, subtitle)."""
+        row = tk.Frame(parent, bg=COLOR_BG)
+        row.pack(fill="x", padx=px, pady=3)
 
-    def _daily_chart(self, parent, snap: UsageSnapshot, cfg: UserConfig):
+        for i, (title, value, subtitle) in enumerate(cards):
+            card = tk.Frame(row, bg=CARD_BG, padx=12, pady=8)
+            card.grid(row=0, column=i, padx=2, sticky="nsew")
+            row.columnconfigure(i, weight=1)
+
+            tk.Label(card, text=title, fg=SUBTLE_TEXT, bg=CARD_BG,
+                     font=("Segoe UI", 8)).pack(anchor="w")
+            tk.Label(card, text=value, fg=HEADER_FG, bg=CARD_BG,
+                     font=("Segoe UI", 15, "bold")).pack(anchor="w")
+            tk.Label(card, text=subtitle, fg=SUBTLE_TEXT, bg=CARD_BG,
+                     font=("Segoe UI", 8)).pack(anchor="w")
+
+    def _section_label(self, parent, text, px=18):
+        tk.Label(parent, text=text, fg=SUBTLE_TEXT, bg=COLOR_BG,
+                 font=("Segoe UI", 9, "bold"), anchor="w",
+                 ).pack(fill="x", padx=px, pady=(14, 4))
+
+    def _divider(self, parent, px):
+        tk.Frame(parent, bg=DIVIDER, height=1).pack(fill="x", padx=px, pady=(8, 0))
+
+    def _daily_chart(self, parent, snap: UsageSnapshot, cfg: UserConfig, px: int):
         """Bar chart of daily output token usage for the current billing period."""
-        canvas = tk.Canvas(parent, bg=COLOR_BG, height=130, highlightthickness=0)
-        canvas.pack(fill="x", padx=20, pady=4)
+        chart_frame = tk.Frame(parent, bg=CARD_BG, padx=12, pady=10)
+        chart_frame.pack(fill="x", padx=px, pady=4)
+
+        canvas = tk.Canvas(chart_frame, bg=CARD_BG, height=120, highlightthickness=0, bd=0)
+        canvas.pack(fill="x")
 
         cutoff = cfg.current_period_start.strftime("%Y-%m-%d")
         days = [d for d in snap.daily_tokens if d.date >= cutoff]
 
         if not days:
-            canvas.create_text(200, 65, text="No usage data this period", fill=COLOR_SECONDARY,
+            canvas.create_text(200, 60, text="No usage data this period", fill=SUBTLE_TEXT,
                                font=("Segoe UI", 10))
             return
 
         canvas.update_idletasks()
-        w = canvas.winfo_width() or 490
-        h = 130
-        margin_bottom = 25
-        margin_top = 15
-        chart_h = h - margin_bottom - margin_top
+        w = canvas.winfo_width() or 470
+        h = 120
+        mb = 22  # margin bottom
+        mt = 14  # margin top
+        chart_h = h - mb - mt
 
         max_output = max(d.output_tokens for d in days) or 1
-        bar_w = max((w - 40) // max(len(days), 1) - 4, 8)
+        gap = 3
+        bar_w = max((w - 20) // max(len(days), 1) - gap, 12)
 
         for i, day in enumerate(days):
-            x = 20 + i * (bar_w + 4)
+            x = 10 + i * (bar_w + gap)
             tokens = day.output_tokens
             bar_h = int((tokens / max_output) * chart_h)
-            y = h - margin_bottom - bar_h
+            y = h - mb - bar_h
 
-            canvas.create_rectangle(x, y, x + bar_w, h - margin_bottom, fill=COLOR_BAR_FILL, outline="")
+            # Bar with slight gradient feel (darker base)
+            canvas.create_rectangle(x, y, x + bar_w, h - mb,
+                                    fill=COLOR_ACCENT, outline="", width=0)
 
-            label = day.date[-2:]
-            canvas.create_text(x + bar_w // 2, h - 10, text=label, fill=COLOR_SECONDARY,
+            # Date label
+            label = day.date[5:]  # MM-DD
+            canvas.create_text(x + bar_w // 2, h - 8, text=label, fill=SUBTLE_TEXT,
                                font=("Segoe UI", 7))
 
-            if bar_h > 15:
+            # Value on top
+            if bar_h > 18:
                 canvas.create_text(x + bar_w // 2, y - 8, text=_format_tokens(tokens),
-                                   fill=COLOR_TEXT, font=("Segoe UI", 7))
+                                   fill=HEADER_FG, font=("Segoe UI", 8))
 
 
 def open_dashboard():
