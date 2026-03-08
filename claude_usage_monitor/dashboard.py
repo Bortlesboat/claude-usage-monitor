@@ -69,12 +69,26 @@ class DashboardWindow:
         self.root.geometry("520x740")
         self.root.resizable(True, True)
         self.root.minsize(400, 500)
+        self._canvas = None
+        self._scrollbar = None
         try:
             self.root.iconbitmap(default="")
         except Exception:
             pass
         self._build_ui()
         self.root.mainloop()
+
+    def _refresh(self):
+        """Reload data and rebuild the UI."""
+        self.snap = load_stats()
+        self.config = load_config()
+        self.live = fetch_live_usage()
+        # Tear down old widgets
+        if self._canvas:
+            self._canvas.destroy()
+        if self._scrollbar:
+            self._scrollbar.destroy()
+        self._build_ui()
 
     def _build_ui(self):
         root = self.root
@@ -92,6 +106,8 @@ class DashboardWindow:
         canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"))
         scrollbar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
+        self._canvas = canvas
+        self._scrollbar = scrollbar
 
         px = 18  # Consistent horizontal padding
 
@@ -100,8 +116,19 @@ class DashboardWindow:
         header_frame.pack(fill="x", padx=px, pady=(20, 0))
         tk.Label(header_frame, text="Claude Code", fg=HEADER_FG, bg=COLOR_BG,
                  font=("Segoe UI", 20, "bold"), anchor="w").pack(side="left")
-        tk.Label(header_frame, text=cfg.plan_label, fg=COLOR_ACCENT, bg=COLOR_BG,
-                 font=("Segoe UI", 11), anchor="e").pack(side="right")
+
+        # Right side: refresh button + plan label
+        right_frame = tk.Frame(header_frame, bg=COLOR_BG)
+        right_frame.pack(side="right")
+        refresh_btn = tk.Button(
+            right_frame, text="Refresh", fg=COLOR_ACCENT, bg=CARD_BG,
+            activeforeground=HEADER_FG, activebackground="#3a3a5c",
+            font=("Segoe UI", 9), bd=0, padx=10, pady=2,
+            cursor="hand2", command=self._refresh,
+        )
+        refresh_btn.pack(side="right", padx=(8, 0))
+        tk.Label(right_frame, text=cfg.plan_label, fg=COLOR_ACCENT, bg=COLOR_BG,
+                 font=("Segoe UI", 11)).pack(side="right")
 
         self._divider(frame, px)
 
