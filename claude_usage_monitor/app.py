@@ -68,16 +68,42 @@ class ClaudeUsageApp:
         return self.snap.usage_pct(self.config)
 
     def _get_title(self) -> str:
+        from datetime import datetime
+
+        lines = []
+
+        # Rate limit windows with reset times
         if self.live and not self.live.error and self.live.windows:
-            parts = []
             for w in sorted(self.live.windows, key=lambda w: w.name):
                 if w.utilization == 0 and "sonnet" in w.name.lower():
                     continue
-                parts.append(f"{w.label}: {w.utilization:.0f}%")
-            from datetime import datetime
-            updated = datetime.now().strftime("%I:%M %p").lstrip("0")
-            return " | ".join(parts) + f" (updated {updated})"
-        return f"Claude Usage Monitor v{__version__}"
+                reset = w.resets_in_display
+                remaining = max(100 - w.utilization, 0)
+                lines.append(f"{w.label}: {w.utilization:.0f}% used \u2022 resets {reset}")
+        elif self.live and self.live.error:
+            lines.append(self.live.error)
+
+        # Today's activity
+        snap = self.snap
+        if snap and snap.today_messages > 0:
+            lines.append(
+                f"Today: {snap.today_messages} msgs \u2022 "
+                f"{format_tokens(snap.today_output_tokens)} output"
+            )
+        elif snap:
+            lines.append("Today: no activity yet")
+
+        if not lines:
+            return f"Claude Usage Monitor v{__version__}"
+
+        updated = datetime.now().strftime("%I:%M %p").lstrip("0")
+        lines.append(f"Updated {updated}")
+
+        # Windows tooltip limit is 127 chars — truncate if needed
+        title = "\n".join(lines)
+        if len(title) > 127:
+            title = title[:124] + "..."
+        return title
 
     def _update_icon(self):
         if not self.icon:

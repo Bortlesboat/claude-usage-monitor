@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.1.0
+
+- Rich multi-line tooltip: shows rate limits with reset times, today's activity, and last update time
+- Previously just showed percentages on one line — now matches the detail level of the right-click menu
+
 ## 3.0.0
 
 - Simplified: removed speculative predictions and plan comparison features
