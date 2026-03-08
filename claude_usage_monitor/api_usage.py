@@ -100,7 +100,60 @@ WINDOW_CONFIG = {
 
 # Simple cache to avoid hammering the API
 _cache: dict[str, tuple[float, LiveUsage]] = {}
-_CACHE_TTL = 30  # seconds
+_CACHE_TTL = 60  # seconds — matches tray auto-refresh interval
+
+# Disk cache path — shared between tray (main process) and dashboard (subprocess)
+_DISK_CACHE_PATH = get_claude_dir() / "usage-monitor-cache.json"
+
+
+def _write_disk_cache(result: LiveUsage) -> None:
+    """Persist last successful API result so the dashboard subprocess can reuse it."""
+    if result.error:
+        return  # Only cache successes to disk
+    try:
+        data = {
+            "ts": _time.time(),
+            "windows": [
+                {
+                    "name": w.name,
+                    "label": w.label,
+                    "utilization": w.utilization,
+                    "resets_at": w.resets_at.isoformat() if w.resets_at else None,
+                }
+                for w in result.windows
+            ],
+            "extra_usage_enabled": result.extra_usage_enabled,
+            "extra_usage_utilization": result.extra_usage_utilization,
+        }
+        _DISK_CACHE_PATH.write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _read_disk_cache() -> LiveUsage | None:
+    """Read cached API result from disk (written by the tray process)."""
+    try:
+        if not _DISK_CACHE_PATH.exists():
+            return None
+        data = json.loads(_DISK_CACHE_PATH.read_text(encoding="utf-8"))
+        # Only use if fresh (< 60s old)
+        if _time.time() - data.get("ts", 0) > 60:
+            return None
+        windows = []
+        for w in data.get("windows", []):
+            windows.append(UsageWindow(
+                name=w["name"],
+                label=w["label"],
+                utilization=float(w["utilization"]),
+                resets_at=_parse_reset_time(w.get("resets_at")),
+            ))
+        return LiveUsage(
+            windows=windows,
+            extra_usage_enabled=data.get("extra_usage_enabled", False),
+            extra_usage_utilization=data.get("extra_usage_utilization"),
+        )
+    except (OSError, json.JSONDecodeError, KeyError):
+        return None
 
 
 def fetch_live_usage() -> LiveUsage:
@@ -112,9 +165,16 @@ def fetch_live_usage() -> LiveUsage:
         if now - ts < ttl:
             return cached
 
+    # Check disk cache first (avoids 429 when dashboard subprocess starts)
+    disk = _read_disk_cache()
+    if disk:
+        _cache["last"] = (now, disk)
+        return disk
+
     result = _fetch_live_usage_uncached()
     # Cache successes for full TTL, errors for half (avoids hammering during outages)
     _cache["last"] = (now, result)
+    _write_disk_cache(result)
     return result
 
 
