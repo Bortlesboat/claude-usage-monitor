@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "claude-usage-tray"
-version = "2.4.0"
-description = "System tray app showing real-time Claude Code usage — rate limits, reset timers, plan comparison"
+version = "3.0.0"
+description = "System tray app showing real-time Claude Code usage — rate limits, reset timers, token stats"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

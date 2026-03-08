@@ -9,23 +9,20 @@ import subprocess
 import sys
 import tkinter as tk
 from tkinter import ttk
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from .api_usage import LiveUsage, UsageWindow, fetch_live_usage
 from .config import (
     COLOR_ACCENT,
     COLOR_BAR_BG,
-    COLOR_BAR_FILL,
     COLOR_BG,
     COLOR_GREEN,
     COLOR_RED,
-    COLOR_SECONDARY,
     COLOR_TEXT,
     COLOR_YELLOW,
     UserConfig,
     load_config,
 )
-from .predictions import generate_predictions
 from .stats import UsageSnapshot, _format_tokens, load_stats
 
 # Refined palette
@@ -59,7 +56,7 @@ class DashboardWindow:
         self.root = tk.Tk()
         self.root.title("Claude Code Usage Monitor")
         self.root.configure(bg=COLOR_BG)
-        self.root.geometry("520x740")
+        self.root.geometry("520x600")
         self.root.resizable(True, True)
         self.root.minsize(400, 500)
         self._canvas = None
@@ -154,13 +151,6 @@ class DashboardWindow:
             tk.Label(err_frame, text=f"Could not fetch live data: {live.error}",
                      fg=COLOR_RED, bg=CARD_BG, font=("Segoe UI", 9), wraplength=460).pack(anchor="w")
 
-        # ── Predictions ──
-        preds = generate_predictions(live)
-        if preds.predictions:
-            self._divider(frame, px)
-            self._section_label(frame, "PREDICTIONS", px)
-            self._predictions_panel(frame, preds, px)
-
         self._divider(frame, px)
 
         # ── Session Stats ──
@@ -189,11 +179,6 @@ class DashboardWindow:
         self._daily_chart(frame, snap, cfg, px)
 
         self._divider(frame, px)
-
-        # ── Plan Comparison ──
-        if live and not live.error and live.windows:
-            self._plan_comparison(frame, live, cfg, px)
-            self._divider(frame, px)
 
         # ── All Time ──
         self._section_label(frame, "ALL TIME", px)
@@ -225,60 +210,6 @@ class DashboardWindow:
                  fg="#44445a", bg=COLOR_BG, font=("Segoe UI", 8)).pack(padx=px, pady=(16, 12))
 
         tk.Frame(frame, bg=COLOR_BG, height=8).pack()
-
-    def _predictions_panel(self, parent, preds, px: int):
-        """Render prediction cards for each active rate window."""
-        from .predictions import UsagePredictions
-
-        for pred in sorted(preds.predictions, key=lambda p: p.window.name):
-            card = tk.Frame(parent, bg=CARD_BG, padx=16, pady=10)
-            card.pack(fill="x", padx=px, pady=3)
-
-            # Color mapping
-            color_map = {"green": COLOR_GREEN, "yellow": COLOR_YELLOW, "red": COLOR_RED}
-            color = color_map.get(pred.pace_color, COLOR_TEXT)
-
-            # Header row: window name + pace badge
-            top = tk.Frame(card, bg=CARD_BG)
-            top.pack(fill="x")
-
-            tk.Label(top, text=pred.window.label, fg=HEADER_FG, bg=CARD_BG,
-                     font=("Segoe UI", 11, "bold")).pack(side="left")
-
-            # Pace badge
-            badge_text = pred.pace.upper()
-            tk.Label(top, text=badge_text, fg=color, bg=CARD_BG,
-                     font=("Segoe UI", 10, "bold")).pack(side="right")
-
-            # Stats row
-            stats = tk.Frame(card, bg=CARD_BG)
-            stats.pack(fill="x", pady=(6, 0))
-
-            # Projected at reset
-            proj_color = color_map.get(
-                "red" if pred.projected_at_reset >= 95 else
-                "yellow" if pred.projected_at_reset >= 70 else "green",
-                COLOR_TEXT
-            )
-            tk.Label(stats, text=f"Projected at reset: {pred.projected_at_reset:.0f}%",
-                     fg=proj_color, bg=CARD_BG, font=("Segoe UI", 9)).pack(side="left")
-
-            # Time to limit (if burning fast)
-            if pred.hours_to_limit is not None:
-                tk.Label(stats, text=f"Hits limit in {pred.hours_to_limit_display}",
-                         fg=COLOR_RED, bg=CARD_BG,
-                         font=("Segoe UI", 9, "bold")).pack(side="right")
-
-            # Budget row
-            budget_row = tk.Frame(card, bg=CARD_BG)
-            budget_row.pack(fill="x", pady=(4, 0))
-
-            tk.Label(budget_row,
-                     text=f"Safe budget: {pred.safe_budget_display}",
-                     fg=SUBTLE_TEXT, bg=CARD_BG, font=("Segoe UI", 9)).pack(side="left")
-            tk.Label(budget_row,
-                     text=f"Current rate: ~{_format_tokens(pred.current_hourly_rate)}/hr",
-                     fg=SUBTLE_TEXT, bg=CARD_BG, font=("Segoe UI", 9)).pack(side="right")
 
     def _usage_gauge(self, parent, w: UsageWindow, snap: UsageSnapshot,
                      cfg: UserConfig, px: int):
@@ -353,108 +284,6 @@ class DashboardWindow:
 
     def _divider(self, parent, px):
         tk.Frame(parent, bg=DIVIDER, height=1).pack(fill="x", padx=px, pady=(8, 0))
-
-    def _plan_comparison(self, parent, live: LiveUsage, cfg: UserConfig, px: int):
-        """Show what usage would look like on each plan tier."""
-        self._section_label(parent, "PLAN COMPARISON", px)
-
-        # Use the 7-day window as the primary comparison (most meaningful)
-        seven_day = None
-        for w in live.windows:
-            if w.name == "seven_day":
-                seven_day = w
-                break
-
-        if not seven_day:
-            return
-
-        current_pct = seven_day.utilization
-
-        # Multipliers relative to each plan
-        # Max 20x = 20x Pro, Max 5x = 5x Pro
-        # If current plan is max_20x and shows X%, then:
-        #   - on Pro: X * 20
-        #   - on Max 5x: X * 4
-        #   - on Max 20x: X (current)
-        plan_multipliers = {
-            "max_20x": {"Pro ($20/mo)": 20, "Max 5x ($100/mo)": 4, "Max 20x ($200/mo)": 1},
-            "max_5x":  {"Pro ($20/mo)": 5,  "Max 5x ($100/mo)": 1, "Max 20x ($200/mo)": 0.25},
-            "pro":     {"Pro ($20/mo)": 1,  "Max 5x ($100/mo)": 0.2, "Max 20x ($200/mo)": 0.05},
-        }
-
-        multipliers = plan_multipliers.get(cfg.plan, plan_multipliers["pro"])
-
-        comp_frame = tk.Frame(parent, bg=CARD_BG, padx=16, pady=12)
-        comp_frame.pack(fill="x", padx=px, pady=4)
-
-        tk.Label(comp_frame, text="7-day usage on each plan:", fg=SUBTLE_TEXT, bg=CARD_BG,
-                 font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 8))
-
-        for plan_name, mult in multipliers.items():
-            simulated_pct = current_pct * mult
-            is_current = mult == 1
-            color = _pct_color(simulated_pct)
-
-            row = tk.Frame(comp_frame, bg=CARD_BG)
-            row.pack(fill="x", pady=2)
-
-            # Plan name
-            name_text = plan_name
-            if is_current:
-                name_text += "  \u2190 current"
-            tk.Label(row, text=name_text, fg=HEADER_FG if is_current else SUBTLE_TEXT,
-                     bg=CARD_BG, font=("Segoe UI", 10, "bold" if is_current else ""),
-                     width=22, anchor="w").pack(side="left")
-
-            # Percentage
-            pct_text = f"{simulated_pct:.0f}%"
-            tk.Label(row, text=pct_text, fg=color, bg=CARD_BG,
-                     font=("Segoe UI", 11, "bold"), width=5, anchor="e").pack(side="right")
-
-            # Progress bar
-            bar_frame = tk.Frame(row, bg=COLOR_BAR_BG, height=14)
-            bar_frame.pack(side="right", fill="x", expand=True, padx=(8, 8))
-            bar_frame.pack_propagate(False)
-
-            fill = min(simulated_pct / 100, 1.0)
-            if fill > 0:
-                bar = tk.Frame(bar_frame, bg=color)
-                bar.place(x=0, y=0, relheight=1.0, relwidth=fill)
-
-            # Over-limit marker at 100%
-            if simulated_pct > 100:
-                # Show a white line at the 100% mark
-                mark_x = min(1.0, 100 / simulated_pct)
-                marker = tk.Frame(bar_frame, bg="#ffffff", width=2)
-                marker.place(relx=min(mark_x, 0.98), y=0, relheight=1.0, width=2)
-
-        # Verdict
-        pro_pct = current_pct * multipliers.get("Pro ($20/mo)", 1)
-        max5_pct = current_pct * multipliers.get("Max 5x ($100/mo)", 1)
-
-        tk.Frame(comp_frame, bg=DIVIDER, height=1).pack(fill="x", pady=(10, 6))
-
-        if pro_pct > 100 and max5_pct > 100:
-            times_over_pro = pro_pct / 100
-            times_over_5x = max5_pct / 100
-            verdict = (f"You'd be {times_over_pro:.1f}x over Pro's limit and "
-                       f"{times_over_5x:.1f}x over Max 5x. "
-                       f"Max 20x is paying for itself.")
-            verdict_color = COLOR_GREEN
-        elif pro_pct > 100:
-            times_over = pro_pct / 100
-            saved = (times_over - 1) * 100
-            verdict = (f"You'd be {times_over:.1f}x over Pro's limit. "
-                       f"Max 5x would also work at {max5_pct:.0f}% — "
-                       f"could save $100/mo.")
-            verdict_color = COLOR_YELLOW
-        else:
-            verdict = (f"You're only at {pro_pct:.0f}% of Pro's limit. "
-                       f"The $20/mo plan would cover your usage.")
-            verdict_color = COLOR_RED
-
-        tk.Label(comp_frame, text=verdict, fg=verdict_color, bg=CARD_BG,
-                 font=("Segoe UI", 9), wraplength=440, justify="left").pack(anchor="w")
 
     def _daily_chart(self, parent, snap: UsageSnapshot, cfg: UserConfig, px: int):
         """Bar chart of daily output token usage for the current billing period."""
