@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -100,7 +101,7 @@ def fetch_live_usage() -> LiveUsage:
     """Fetch live usage from Anthropic's OAuth API."""
     token = _get_oauth_token()
     if not token:
-        return LiveUsage(windows=[], error="No OAuth token found in ~/.claude/.credentials.json")
+        return LiveUsage(windows=[], error="Sign in to Claude Code first (run 'claude' in terminal)")
 
     try:
         req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage")
@@ -111,8 +112,18 @@ def fetch_live_usage() -> LiveUsage:
 
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            msg = "Session expired — run 'claude' in terminal to re-authenticate"
+        elif e.code == 403:
+            msg = "Token doesn't have required permissions — re-authenticate Claude Code"
+        else:
+            msg = f"Anthropic API error (HTTP {e.code})"
+        return LiveUsage(windows=[], error=msg)
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return LiveUsage(windows=[], error="Can't reach Anthropic — local stats still work")
     except Exception as e:
-        return LiveUsage(windows=[], error=f"API request failed: {e}")
+        return LiveUsage(windows=[], error=str(e) or "Unknown error fetching usage")
 
     windows = []
     for key, label in WINDOW_CONFIG.items():
