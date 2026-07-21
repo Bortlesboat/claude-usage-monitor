@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import atexit
+import os
 import platform
 import subprocess
 import sys
@@ -17,6 +19,7 @@ from .config import (
     COLOR_TEXT,
     COLOR_YELLOW,
     UserConfig,
+    get_claude_dir,
     load_config,
 )
 from .stats import UsageSnapshot, format_tokens, load_stats
@@ -332,6 +335,40 @@ class DashboardWindow:
                                    fill=HEADER_FG, font=(FONT_FAMILY, 8))
 
 
+_DASHBOARD_LOCK_SENTINEL = "claude-usage-monitor-dashboard"
+
+
+def _acquire_dashboard_lock():
+    """Return True if no other dashboard instance is running (and claim the lock)."""
+    lock_path = get_claude_dir() / "usage-monitor-dashboard.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        if lock_path.exists():
+            try:
+                parts = lock_path.read_text().strip().split("\n")
+                old_pid = int(parts[0])
+                sentinel = parts[1] if len(parts) > 1 else ""
+                if sentinel != _DASHBOARD_LOCK_SENTINEL:
+                    pass  # Stale lock from old version, overwrite it
+                elif sys.platform == "win32":
+                    import ctypes
+                    kernel32 = ctypes.windll.kernel32
+                    handle = kernel32.OpenProcess(0x1000, False, old_pid)
+                    if handle:
+                        kernel32.CloseHandle(handle)
+                        return False
+                else:
+                    os.kill(old_pid, 0)
+                    return False
+            except (ValueError, OSError, ProcessLookupError):
+                pass
+        lock_path.write_text(f"{os.getpid()}\n{_DASHBOARD_LOCK_SENTINEL}")
+        atexit.register(lambda: lock_path.unlink(missing_ok=True))
+        return True
+    except OSError:
+        return True
+
+
 def open_dashboard():
     kwargs = {}
     if sys.platform == "win32":
@@ -343,4 +380,7 @@ def open_dashboard():
 
 
 if __name__ == "__main__":
-    DashboardWindow().show()
+    if _acquire_dashboard_lock():
+        DashboardWindow().show()
+    else:
+        print("Claude Usage Monitor dashboard is already open.", file=sys.stderr)
