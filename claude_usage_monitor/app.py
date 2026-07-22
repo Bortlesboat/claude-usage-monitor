@@ -206,7 +206,7 @@ class ClaudeUsageApp:
 
     def _auto_refresh_loop(self):
         while self._running:
-            time.sleep(60)
+            time.sleep(120)
             if self._running:
                 try:
                     self._refresh()
