@@ -60,18 +60,21 @@ class LiveUsage:
 
 
 def _get_oauth_token():
-    candidates = [
-        c for c in (_read_token_from_file(), _read_token_from_macos_keychain())
-        if c and c[0]
-    ]
-    if not candidates:
-        return None
-    for token, expires_ms in candidates:
-        if not _token_expired(expires_ms):
-            return token
-    # Nothing unexpired — return the first candidate anyway so the caller
-    # gets a clear "session expired" 401 instead of a vague "not signed in".
-    return candidates[0][0]
+    file_candidate = _read_token_from_file()
+    if file_candidate and file_candidate[0] and not _token_expired(file_candidate[1]):
+        return file_candidate[0]
+
+    keychain_candidate = _read_token_from_macos_keychain()
+    if keychain_candidate and keychain_candidate[0] and not _token_expired(keychain_candidate[1]):
+        return keychain_candidate[0]
+
+    # Nothing unexpired — still return an available token so the caller gets
+    # the specific session-expired 401 instead of the vague not-signed-in state.
+    if file_candidate and file_candidate[0]:
+        return file_candidate[0]
+    if keychain_candidate and keychain_candidate[0]:
+        return keychain_candidate[0]
+    return None
 
 
 def _token_expired(expires_ms):

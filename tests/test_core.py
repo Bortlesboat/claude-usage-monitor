@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from claude_usage_monitor.stats import format_tokens
-from claude_usage_monitor.api_usage import _parse_reset_time, UsageWindow
+from claude_usage_monitor.api_usage import _get_oauth_token, _parse_reset_time, UsageWindow
 from claude_usage_monitor.updater import _parse_version
 from claude_usage_monitor.config import UserConfig
 
@@ -90,6 +90,52 @@ class TestParseResetTime:
         assert result is not None
         assert result.hour == 12
         assert result.utcoffset() == timedelta(hours=5, minutes=30)
+
+
+# ---------------------------------------------------------------------------
+# api_usage._get_oauth_token
+# ---------------------------------------------------------------------------
+
+class TestGetOauthToken:
+    @patch("claude_usage_monitor.api_usage._read_token_from_macos_keychain")
+    @patch("claude_usage_monitor.api_usage._read_token_from_file")
+    def test_fresh_file_token_does_not_read_keychain(self, read_file, read_keychain):
+        read_file.return_value = ("fresh-file-token", 10_000_000_000_000)
+
+        assert _get_oauth_token() == "fresh-file-token"
+        read_keychain.assert_not_called()
+
+    @patch("claude_usage_monitor.api_usage._read_token_from_macos_keychain")
+    @patch("claude_usage_monitor.api_usage._read_token_from_file")
+    def test_expired_file_token_falls_back_to_fresh_keychain(self, read_file, read_keychain):
+        read_file.return_value = ("expired-file-token", 1)
+        read_keychain.return_value = ("fresh-keychain-token", 10_000_000_000_000)
+
+        assert _get_oauth_token() == "fresh-keychain-token"
+
+    @patch("claude_usage_monitor.api_usage._read_token_from_macos_keychain")
+    @patch("claude_usage_monitor.api_usage._read_token_from_file")
+    def test_missing_file_token_uses_keychain(self, read_file, read_keychain):
+        read_file.return_value = None
+        read_keychain.return_value = ("keychain-token", None)
+
+        assert _get_oauth_token() == "keychain-token"
+
+    @patch("claude_usage_monitor.api_usage._read_token_from_macos_keychain")
+    @patch("claude_usage_monitor.api_usage._read_token_from_file")
+    def test_expired_file_token_is_retained_when_keychain_is_missing(self, read_file, read_keychain):
+        read_file.return_value = ("expired-file-token", 1)
+        read_keychain.return_value = None
+
+        assert _get_oauth_token() == "expired-file-token"
+
+    @patch("claude_usage_monitor.api_usage._read_token_from_macos_keychain")
+    @patch("claude_usage_monitor.api_usage._read_token_from_file")
+    def test_missing_tokens_return_none(self, read_file, read_keychain):
+        read_file.return_value = None
+        read_keychain.return_value = None
+
+        assert _get_oauth_token() is None
 
 
 # ---------------------------------------------------------------------------
