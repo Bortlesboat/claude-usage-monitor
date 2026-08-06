@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import platform
+import subprocess
 import time as _time
 import urllib.error
 import urllib.request
@@ -58,13 +60,60 @@ class LiveUsage:
 
 
 def _get_oauth_token():
+    file_candidate = _read_token_from_file()
+    if file_candidate and file_candidate[0] and not _token_expired(file_candidate[1]):
+        return file_candidate[0]
+
+    keychain_candidate = _read_token_from_macos_keychain()
+    if keychain_candidate and keychain_candidate[0] and not _token_expired(keychain_candidate[1]):
+        return keychain_candidate[0]
+
+    # Nothing unexpired — still return an available token so the caller gets
+    # the specific session-expired 401 instead of the vague not-signed-in state.
+    if file_candidate and file_candidate[0]:
+        return file_candidate[0]
+    if keychain_candidate and keychain_candidate[0]:
+        return keychain_candidate[0]
+    return None
+
+
+def _token_expired(expires_ms):
+    if not expires_ms:
+        return False
+    try:
+        return _time.time() * 1000 >= float(expires_ms)
+    except (TypeError, ValueError):
+        return False
+
+
+def _read_token_from_file():
     creds_path = get_claude_dir() / ".credentials.json"
     if not creds_path.exists():
         return None
     try:
         with open(creds_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return data.get("claudeAiOauth", {}).get("accessToken")
+        oauth = data.get("claudeAiOauth", {})
+        return oauth.get("accessToken"), oauth.get("expiresAt")
+    except Exception:
+        return None
+
+
+def _read_token_from_macos_keychain():
+    # Newer Claude Code versions store credentials in the macOS Keychain
+    # instead of ~/.claude/.credentials.json, which can go stale for weeks
+    # if nothing else prompts a re-login.
+    if platform.system() != "Darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        oauth = json.loads(result.stdout).get("claudeAiOauth", {})
+        return oauth.get("accessToken"), oauth.get("expiresAt")
     except Exception:
         return None
 
