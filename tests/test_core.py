@@ -137,6 +137,30 @@ class TestGetOauthToken:
 
         assert _get_oauth_token() is None
 
+    @patch("claude_usage_monitor.api_usage._read_token_from_macos_keychain")
+    @patch("claude_usage_monitor.api_usage._read_token_from_file")
+    def test_both_expired_prefers_most_recent_keychain(self, read_file, read_keychain):
+        read_file.return_value = ("stale-file-token", 1)
+        read_keychain.return_value = ("recently-expired-keychain-token", 2)
+
+        assert _get_oauth_token() == "recently-expired-keychain-token"
+
+    @patch("claude_usage_monitor.api_usage._read_token_from_macos_keychain")
+    @patch("claude_usage_monitor.api_usage._read_token_from_file")
+    def test_both_expired_prefers_most_recent_file(self, read_file, read_keychain):
+        read_file.return_value = ("recently-expired-file-token", 2)
+        read_keychain.return_value = ("stale-keychain-token", 1)
+
+        assert _get_oauth_token() == "recently-expired-file-token"
+
+    @patch("claude_usage_monitor.api_usage._read_token_from_macos_keychain")
+    @patch("claude_usage_monitor.api_usage._read_token_from_file")
+    def test_expired_keychain_token_is_retained_when_file_is_missing(self, read_file, read_keychain):
+        read_file.return_value = None
+        read_keychain.return_value = ("expired-keychain-token", 1)
+
+        assert _get_oauth_token() == "expired-keychain-token"
+
 
 # ---------------------------------------------------------------------------
 # api_usage.UsageWindow.resets_in_display

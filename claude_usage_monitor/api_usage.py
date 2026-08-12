@@ -70,11 +70,21 @@ def _get_oauth_token():
 
     # Nothing unexpired — still return an available token so the caller gets
     # the specific session-expired 401 instead of the vague not-signed-in state.
-    if file_candidate and file_candidate[0]:
-        return file_candidate[0]
-    if keychain_candidate and keychain_candidate[0]:
-        return keychain_candidate[0]
-    return None
+    # Prefer whichever expired most recently: a long-abandoned token can be
+    # rejected as 429 rather than 401, which surfaces a misleading
+    # "API rate limited" message instead of telling the user to sign in again.
+    expired = [c for c in (file_candidate, keychain_candidate) if c and c[0]]
+    if not expired:
+        return None
+    return max(expired, key=lambda c: _expiry_sort_key(c[1]))[0]
+
+
+def _expiry_sort_key(expires_ms):
+    """Sort key for picking the most recently valid token. Unknown expiry sorts last."""
+    try:
+        return float(expires_ms)
+    except (TypeError, ValueError):
+        return float("-inf")
 
 
 def _token_expired(expires_ms):
