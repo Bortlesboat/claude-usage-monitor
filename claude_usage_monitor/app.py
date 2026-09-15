@@ -24,6 +24,27 @@ from .updater import check_update, do_update
 GITHUB_URL = "https://github.com/Bortlesboat/claude-usage-monitor"
 
 
+def _on_main_thread(fn):
+    """Run `fn` on the thread that owns the tray icon.
+
+    macOS 27's AppKit traps (EXC_BREAKPOINT, "assertBarrierOnQueue") when an
+    NSStatusItem is touched from any thread but the main one. The icon, menu,
+    tooltip and notifications are all updated from worker threads here — the
+    initial fetch, the auto-refresh loop, the update check — which earlier
+    macOS releases tolerated and 27 does not, so the tray died within seconds
+    of launch. pystray runs NSApplication's loop on the main thread, so queue
+    the call onto it. Elsewhere, and when already on the main thread, just run.
+    """
+    if sys.platform != "darwin" or threading.current_thread() is threading.main_thread():
+        fn()
+        return
+    from PyObjCTools import AppHelper
+
+    # Queued work runs once the main loop is going, so calls made before
+    # icon.run() are delivered rather than dropped.
+    AppHelper.callAfter(fn)
+
+
 class ClaudeUsageApp:
 
     def __init__(self):
@@ -109,9 +130,14 @@ class ClaudeUsageApp:
         if not self.icon:
             return
         pct = self._get_primary_pct()
-        self.icon.icon = get_icon_for_usage(pct)
-        self.icon.menu = self._make_menu()
-        self.icon.title = self._get_title()
+        image, menu, title = get_icon_for_usage(pct), self._make_menu(), self._get_title()
+
+        def _apply():
+            self.icon.icon = image
+            self.icon.menu = menu
+            self.icon.title = title
+
+        _on_main_thread(_apply)
 
     def _refresh(self, icon=None, item=None):
         config = load_config()
@@ -130,10 +156,13 @@ class ClaudeUsageApp:
     def _notify(self, message, title="Claude Usage Monitor"):
         if not self.icon:
             return
-        try:
-            self.icon.notify(message, title)
-        except Exception:
-            pass  # some pystray backends don't support this
+        def _send():
+            try:
+                self.icon.notify(message, title)
+            except Exception:
+                pass  # some pystray backends don't support this
+
+        _on_main_thread(_send)
 
     def _check_thresholds(self):
         if not self.icon or not self.live or self.live.error or not self.live.windows:
@@ -166,17 +195,19 @@ class ClaudeUsageApp:
     def _open_github(self, icon=None, item=None):
         webbrowser.open(GITHUB_URL)
 
+    def _set_title(self, title):
+        if self.icon:
+            _on_main_thread(lambda: setattr(self.icon, "title", title))
+
     def _check_update(self, icon=None, item=None):
         def _run():
-            if self.icon:
-                self.icon.title = "Checking for updates..."
+            self._set_title("Checking for updates...")
 
             available, current, remote = check_update()
 
             if not available:
                 self._notify(f"You're on the latest version (v{current})")
-                if self.icon:
-                    self.icon.title = self._get_title()
+                self._set_title(self._get_title())
                 return
 
             self._notify(f"Updating v{current} \u2192 v{remote}...")
@@ -184,8 +215,7 @@ class ClaudeUsageApp:
             success, message = do_update()
 
             self._notify(message)
-            if self.icon:
-                self.icon.title = self._get_title()
+            self._set_title(self._get_title())
 
         threading.Thread(target=_run, daemon=True).start()
 
