@@ -97,8 +97,7 @@ class TestTrayUpdatesFromWorkerThreads:
         tray = _bare_app(icon)
         helper = _QueueingAppHelper()
         with patch.object(app.sys, "platform", "darwin"), _fake_pyobjc(helper), \
-                patch.object(app, "get_icon_for_usage", return_value="image"), \
-                patch.object(tray, "_get_primary_pct", return_value=42, create=True), \
+                patch.object(tray, "_icon_image", return_value="image"), \
                 patch.object(tray, "_make_menu", return_value="menu", create=True), \
                 patch.object(tray, "_get_title", return_value="title", create=True):
             _on_worker(tray._update_icon)
