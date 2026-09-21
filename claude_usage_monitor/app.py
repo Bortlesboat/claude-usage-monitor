@@ -18,10 +18,45 @@ from .autostart import create_desktop_shortcut, toggle_autostart
 from .config import get_claude_dir, load_config
 from .dashboard import open_dashboard
 from .stats import UsageSnapshot, format_tokens, load_stats
-from .tray import build_menu_items, get_icon_for_usage
+from .tray import build_menu_items, create_icon_image, get_icon_for_usage
 from .updater import check_update, do_update
 
 GITHUB_URL = "https://github.com/Bortlesboat/claude-usage-monitor"
+
+# The icon when there is no live reading to show. Without one, the percentage
+# falls back to an estimate from local logs against the configured plan, which
+# routinely runs past 100 and renders as the red "!!" tile: the same icon as
+# genuinely running out. A grey tile says "not live" without saying "over". The
+# reason -- expired session, rate limit, no network -- is already in the tooltip
+# and the menu.
+NO_DATA_BG = "#2b2b2b"
+NO_DATA_FG = "#9a9a9a"
+ICON_ERROR = "?"   # a fetch was made and failed
+# No fetch has finished yet, just after launch: an empty tile. Not an ellipsis --
+# create_icon_image centres a glyph's ink box without allowing for where the
+# glyph sits on the line, so low punctuation lands visibly off-centre.
+ICON_PENDING = ""
+
+
+def _on_main_thread(fn):
+    """Run `fn` on the thread that owns the tray icon.
+
+    macOS 27's AppKit traps (EXC_BREAKPOINT, "assertBarrierOnQueue") when an
+    NSStatusItem is touched from any thread but the main one. The icon, menu,
+    tooltip and notifications are all updated from worker threads here — the
+    initial fetch, the auto-refresh loop, the update check — which earlier
+    macOS releases tolerated and 27 does not, so the tray died within seconds
+    of launch. pystray runs NSApplication's loop on the main thread, so queue
+    the call onto it. Elsewhere, and when already on the main thread, just run.
+    """
+    if sys.platform != "darwin" or threading.current_thread() is threading.main_thread():
+        fn()
+        return
+    from PyObjCTools import AppHelper
+
+    # Queued work runs once the main loop is going, so calls made before
+    # icon.run() are delivered rather than dropped.
+    AppHelper.callAfter(fn)
 
 
 class ClaudeUsageApp:
@@ -30,7 +65,7 @@ class ClaudeUsageApp:
         self._first_launch = not (get_claude_dir() / "usage-monitor-config.json").exists()
         self.config = load_config()
         self.snap: UsageSnapshot = load_stats()
-        self.live: LiveUsage = LiveUsage(windows=[])
+        self.live: LiveUsage | None = None
         self.icon: pystray.Icon | None = None
         self._running = True
         self._lock = threading.Lock()
@@ -62,10 +97,12 @@ class ClaudeUsageApp:
 
         return Menu(*menu_items)
 
-    def _get_primary_pct(self):
-        if self.live and self.live.primary_window:
-            return self.live.primary_window.utilization
-        return self.snap.usage_pct(self.config)
+    def _icon_image(self):
+        live = self.live
+        if live and not live.error and live.primary_window:
+            return get_icon_for_usage(live.primary_window.utilization)
+        glyph = ICON_PENDING if live is None else ICON_ERROR
+        return create_icon_image(glyph, bg_color=NO_DATA_BG, text_color=NO_DATA_FG)
 
     def _get_title(self) -> str:
         from datetime import datetime
@@ -108,10 +145,14 @@ class ClaudeUsageApp:
     def _update_icon(self):
         if not self.icon:
             return
-        pct = self._get_primary_pct()
-        self.icon.icon = get_icon_for_usage(pct)
-        self.icon.menu = self._make_menu()
-        self.icon.title = self._get_title()
+        image, menu, title = self._icon_image(), self._make_menu(), self._get_title()
+
+        def _apply():
+            self.icon.icon = image
+            self.icon.menu = menu
+            self.icon.title = title
+
+        _on_main_thread(_apply)
 
     def _refresh(self, icon=None, item=None):
         config = load_config()
@@ -130,10 +171,13 @@ class ClaudeUsageApp:
     def _notify(self, message, title="Claude Usage Monitor"):
         if not self.icon:
             return
-        try:
-            self.icon.notify(message, title)
-        except Exception:
-            pass  # some pystray backends don't support this
+        def _send():
+            try:
+                self.icon.notify(message, title)
+            except Exception:
+                pass  # some pystray backends don't support this
+
+        _on_main_thread(_send)
 
     def _check_thresholds(self):
         if not self.icon or not self.live or self.live.error or not self.live.windows:
@@ -166,17 +210,19 @@ class ClaudeUsageApp:
     def _open_github(self, icon=None, item=None):
         webbrowser.open(GITHUB_URL)
 
+    def _set_title(self, title):
+        if self.icon:
+            _on_main_thread(lambda: setattr(self.icon, "title", title))
+
     def _check_update(self, icon=None, item=None):
         def _run():
-            if self.icon:
-                self.icon.title = "Checking for updates..."
+            self._set_title("Checking for updates...")
 
             available, current, remote = check_update()
 
             if not available:
                 self._notify(f"You're on the latest version (v{current})")
-                if self.icon:
-                    self.icon.title = self._get_title()
+                self._set_title(self._get_title())
                 return
 
             self._notify(f"Updating v{current} \u2192 v{remote}...")
@@ -184,8 +230,7 @@ class ClaudeUsageApp:
             success, message = do_update()
 
             self._notify(message)
-            if self.icon:
-                self.icon.title = self._get_title()
+            self._set_title(self._get_title())
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -214,10 +259,9 @@ class ClaudeUsageApp:
                     pass
 
     def run(self):
-        pct = self._get_primary_pct()
         self.icon = pystray.Icon(
             name="claude-usage",
-            icon=get_icon_for_usage(pct),
+            icon=self._icon_image(),
             title=f"Claude Usage Monitor v{__version__} — loading...",
             menu=self._make_menu(),
         )
